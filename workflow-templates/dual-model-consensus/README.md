@@ -142,6 +142,8 @@ workflow-templates/dual-model-consensus/agents/gpt-reviewer.md
 - `CODE_REVIEW_CONTEXT` 模板
 - 分歧报告摘要模板
 
+其中 `draft-r1.md` / `revision-rN.md` / `final.md` 用于落盘追踪，可以包含完整 diff；但 `code` 模式真正传给 reviewer 或 Claude 修订轮的，应该是单独渲染的紧凑 `CODE_REVIEW_CONTEXT`，不要把这些跟踪文件原样整包转发。
+
 ## 维护建议
 
 - 更新模板时，同步维护 `skill/SKILL.md`、`skill/reference.md`、`README.md` 与 `init.sh`

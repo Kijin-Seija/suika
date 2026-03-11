@@ -13,7 +13,7 @@ code_review_context:
 latest_review:
 {{LATEST_REVIEW}}
 
-`{{CODE_REVIEW_CONTEXT}}` 优先包含自上一轮 review 以来的增量 diff、受影响文件摘要和必要的上下文片段，而不是累计的全量变更。
+`{{CODE_REVIEW_CONTEXT}}` 优先包含自上一轮 review 以来的增量 diff、受影响文件摘要和必要的上下文片段，而不是累计的全量变更。`{{CODE_REVIEW_CONTEXT}}` 不是 `draft-r1.md` 或 `revision-rN.md` 的原文转发，也不应默认附带累计全量 diff 或变更后文件全文。
 
 ## 修订规则
 

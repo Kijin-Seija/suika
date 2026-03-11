@@ -18,6 +18,7 @@ readonly: true
 仅当渲染后的 prompt 没有覆盖时，控制器才补充一小段额外说明，例如“只 review 主制品，不处理响应日志”这类运行约束。
 
 不要在 prompt 之外重复传轮次、topic slug、制品类型、输出文件名，或再次附上一份与 prompt 内容重复的主制品。
+对 `code` 模式，不要把 `draft-r1.md`、`revision-rN.md` 或 `final.md` 的完整正文整包转发给你；控制器应改为抽取紧凑的 `CODE_REVIEW_CONTEXT`。
 
 文件写入和循环控制都属于控制器职责。你只负责返回内容。
 

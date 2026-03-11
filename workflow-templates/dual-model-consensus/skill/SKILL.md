@@ -219,6 +219,7 @@ GPT 必须：
    - `{{TOPIC_SLUG}}`
    - `{{ROUND}} = 1`
    - `{{CODE_REVIEW_CONTEXT}} = 以增量 diff 为主的 review 上下文；包含变更摘要、受影响文件摘要，以及仅在必要时附带的关键代码片段`
+   - 不要把 `draft-r1.md`、`revision-rN.md` 或 `final.md` 的完整正文直接作为 `CODE_REVIEW_CONTEXT` 传给 GPT 或 Claude
 9. 调用 GPT review 代码变更。
 10. 把 review 保存为 `review-r1.md`。
 11. 运行 `reference.md` 中的代码模式收敛检查。
@@ -250,6 +251,8 @@ GPT 必须：
 
 除非 prompt 本身无法表达运行约束，否则不要在 prompt 之外重复传任务元信息。优先策略是“一个完整 prompt + 极少量补充说明”，而不是“结构化字段 + 完整 prompt”双重注入。
 
+对 `code` 模式要特别避免把“落盘跟踪文件”和“review 输入上下文”混为一谈。`draft-r1.md`、`revision-rN.md`、`final.md` 是控制器保存到磁盘的跟踪材料，可以包含完整 diff；但传给 GPT reviewer 或 Claude 修订轮的应当是单独渲染的紧凑 `CODE_REVIEW_CONTEXT`。
+
 每次调用 subagent 时都应明确提供：
 
 - 完整渲染后的 prompt
@@ -266,7 +269,7 @@ GPT 必须：
 ### code 模式变量
 
 - `{{USER_TASK}}`、`{{ARTIFACT_TYPE}}`、`{{TOPIC_SLUG}}`、`{{ROUND}}`、`{{MAX_ROUNDS}}`
-- `{{CODE_REVIEW_CONTEXT}}`（GPT review 和 Claude 修订时传入，优先包含增量 diff、受影响文件摘要和必要片段）
+- `{{CODE_REVIEW_CONTEXT}}`（GPT review 和 Claude 修订时传入，优先包含增量 diff、受影响文件摘要和必要片段；不是 `draft-r1.md` / `revision-rN.md` / `final.md` 的原文转发）
 - `{{LATEST_REVIEW}}`（Claude 修订时传入）
 
 ## 收敛规则

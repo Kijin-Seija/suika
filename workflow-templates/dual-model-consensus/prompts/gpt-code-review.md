@@ -11,7 +11,7 @@ meta: artifact=code topic={{TOPIC_SLUG}} round={{ROUND}}
 code_review_context:
 {{CODE_REVIEW_CONTEXT}}
 
-`{{CODE_REVIEW_CONTEXT}}` 优先包含增量 diff、受影响文件摘要和理解问题所必需的关键片段；只有当 diff 本身不足以判断正确性时，控制器才补充更长的文件片段。
+`{{CODE_REVIEW_CONTEXT}}` 优先包含增量 diff、受影响文件摘要和理解问题所必需的关键片段；只有当 diff 本身不足以判断正确性时，控制器才补充更长的文件片段。`{{CODE_REVIEW_CONTEXT}}` 不是 `draft-r1.md` 或 `revision-rN.md` 的原文转发，也不应默认附带累计全量 diff 或变更后文件全文。
 
 ## Review 重点
 
