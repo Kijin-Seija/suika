@@ -165,16 +165,14 @@ GPT 必须：
     - `{{ARTIFACT_TYPE}} = plan`
     - `{{TOPIC_SLUG}}`
     - `{{MAX_ROUNDS}}`
-    - `{{LATEST_ARTIFACT}} = 最新 draft 或 revision`
-    - `{{LATEST_REVIEW}} = 最新 review`
-    - `{{LATEST_CLAUDE_RESPONSE}} = 最新 response 文件；如果尚未发生 Claude 修订轮次则传 \`none\``
-    - `{{REVIEW_HISTORY}} = 按顺序排列的历史 review 文件`
-    - `{{CLAUDE_RESPONSE_HISTORY}} = 按顺序排列的历史 response 文件；如果为空则传 \`none\``
+    - `{{LATEST_ARTIFACT_SUMMARY}} = 最新主制品的结构化摘要`
+    - `{{LATEST_REVIEW_SUMMARY}} = 最新 review 的结构化摘要`
+    - `{{LATEST_CLAUDE_POSITION}} = 最新 Claude 响应立场摘要；如果尚未发生 Claude 修订轮次，则从最新主制品推断并标记 inferred`
+    - `{{UNRESOLVED_ISSUES}} = 仍未解决的问题列表，按严重级别和主题归并`
 12. 调用分歧报告 prompt 生成未收敛总结，并保存为 `disagreement-report.md`。
 13. 否则，渲染 Claude 修订 prompt，包含：
     - `{{ROUND}} = 下一轮 review 的轮次号`
-    - `{{PREVIOUS_ARTIFACT}} = 最新 draft 或 revision`
-    - `{{LATEST_REVIEW}} = 最新 review`
+    - `{{REVISION_CONTEXT}} = 由文档骨架、受影响章节正文、最新 review findings 和保留约束组成的紧凑修订包；仅在需要整体改写时回退为完整最新制品`
 14. 调用 Claude 根据最新制品和最新 review 进行修订。
 15. 按要求的哨兵拆分 Claude 输出：
     - `<!-- BEGIN_RESPONSE -->` ... `<!-- END_RESPONSE -->`
@@ -220,7 +218,7 @@ GPT 必须：
    - `{{ARTIFACT_TYPE}} = code`
    - `{{TOPIC_SLUG}}`
    - `{{ROUND}} = 1`
-   - `{{CODE_CHANGES}} = draft-r1.md 的内容（变更摘要 + diff）`
+   - `{{CODE_REVIEW_CONTEXT}} = 以增量 diff 为主的 review 上下文；包含变更摘要、受影响文件摘要，以及仅在必要时附带的关键代码片段`
 9. 调用 GPT review 代码变更。
 10. 把 review 保存为 `review-r1.md`。
 11. 运行 `reference.md` 中的代码模式收敛检查。
@@ -228,13 +226,13 @@ GPT 必须：
 13. 如果当前 GPT review 轮次已经达到上限，则渲染分歧报告 prompt，传入相应上下文，保存为 `disagreement-report.md`。
 14. 否则，渲染 Claude 代码修订 prompt（使用 `claude-code-revision.md`），包含：
     - `{{ROUND}} = 下一轮 review 的轮次号`
-    - `{{CODE_CHANGES}} = 当前累积 diff`
+    - `{{CODE_REVIEW_CONTEXT}} = 自上一轮 review 以来的增量 diff、受影响文件摘要和必要片段`
     - `{{LATEST_REVIEW}} = 最新 review`
 15. 调用 Claude 执行代码修订。Claude 会直接修改代码文件，并返回 review response 文本。
 16. 将 Claude 返回的 review response 保存为 `response-rN.md`。
 17. 重新捕获 `git diff` 获取更新后的累积变更；若修订中新增了未跟踪文件，同样先执行 `git add -N <path>`。
 18. 将更新后的变更摘要 + diff 保存为 `revision-rN.md`。
-19. 渲染 GPT code review prompt，将更新后的 diff 作为 `{{CODE_CHANGES}}`。
+19. 渲染 GPT code review prompt，将更新后的增量 review 上下文作为 `{{CODE_REVIEW_CONTEXT}}`。
 20. 调用 GPT review 更新后的代码变更。
 21. 把 review 保存为 `review-rN.md`。
 22. 重复以上过程，直到收敛或达到轮次上限。
@@ -250,14 +248,12 @@ GPT 必须：
 
 控制器应把完整渲染后的 prompt 文本直接传给 subagent，而不是让 subagent 自己去加载模板。
 
+除非 prompt 本身无法表达运行约束，否则不要在 prompt 之外重复传任务元信息。优先策略是“一个完整 prompt + 极少量补充说明”，而不是“结构化字段 + 完整 prompt”双重注入。
+
 每次调用 subagent 时都应明确提供：
 
-- 工作流目的
-- 当前轮次
-- 制品类型（`plan` 或 `code`）
 - 完整渲染后的 prompt
-- 预期输出文件名
-- 只有控制器负责写文件这一规则（code 模式下，Claude 负责写代码文件，控制器负责写跟踪文件）
+- 必要时补充一小段控制器说明，例如当前是 `draft` 还是 `revision`，以及文件写入职责
 
 由于 subagent 从干净上下文启动，绝不要假设它能看到此前对话历史。
 
@@ -265,12 +261,12 @@ GPT 必须：
 
 - `{{USER_TASK}}`、`{{ARTIFACT_TYPE}}`、`{{TOPIC_SLUG}}`、`{{ROUND}}`、`{{MAX_ROUNDS}}`
 - `{{CURRENT_ARTIFACT}}`（GPT review 时传入当前计划文档正文）
-- `{{PREVIOUS_ARTIFACT}}`、`{{LATEST_REVIEW}}`（Claude 修订时传入）
+- `{{REVISION_CONTEXT}}`（Claude 修订时传入紧凑修订包，优先只包含文档骨架、受影响章节、最新 findings 和保留约束）
 
 ### code 模式变量
 
 - `{{USER_TASK}}`、`{{ARTIFACT_TYPE}}`、`{{TOPIC_SLUG}}`、`{{ROUND}}`、`{{MAX_ROUNDS}}`
-- `{{CODE_CHANGES}}`（GPT review 和 Claude 修订时传入，包含变更摘要 + git diff）
+- `{{CODE_REVIEW_CONTEXT}}`（GPT review 和 Claude 修订时传入，优先包含增量 diff、受影响文件摘要和必要片段）
 - `{{LATEST_REVIEW}}`（Claude 修订时传入）
 
 ## 收敛规则

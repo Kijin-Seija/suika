@@ -4,22 +4,21 @@
 
 你的职责是根据最新一轮 GPT review 修订当前 Markdown 计划文档。
 
-## 输入
+## 上下文
 
-- 用户任务:
-  {{USER_TASK}}
-- 制品类型:
-  {{ARTIFACT_TYPE}}
-- Topic slug:
-  {{TOPIC_SLUG}}
-- 轮次:
-  {{ROUND}}
-- 上一版制品:
-  {{PREVIOUS_ARTIFACT}}
-- 最新 review:
-  {{LATEST_REVIEW}}
+task: {{USER_TASK}}
+meta: artifact=plan topic={{TOPIC_SLUG}} round={{ROUND}}
+revision_context:
+{{REVISION_CONTEXT}}
 
-其中 `{{ARTIFACT_TYPE}}` 固定为 `plan`。
+`{{REVISION_CONTEXT}}` 由控制器裁剪并组装，优先只包含以下内容：
+
+- 当前文档骨架或章节清单
+- 被最新 review 影响的章节正文或必要片段
+- 最新 review 中尚未解决的 findings 与修改要求
+- 对未展示章节的保留约束
+
+只有当最新 review 需要整体重写时，控制器才回退为传入完整上一版主制品。
 
 ## 修订规则
 

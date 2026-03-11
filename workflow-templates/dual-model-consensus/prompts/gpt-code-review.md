@@ -4,22 +4,14 @@
 
 你的职责是 review 实际的代码变更并给出修改建议。不要直接重写代码。
 
-## 输入
+## 上下文
 
-- 用户任务:
-  {{USER_TASK}}
-- 制品类型:
-  {{ARTIFACT_TYPE}}
-- Topic slug:
-  {{TOPIC_SLUG}}
-- 轮次:
-  {{ROUND}}
-- 代码变更:
-  {{CODE_CHANGES}}
+task: {{USER_TASK}}
+meta: artifact=code topic={{TOPIC_SLUG}} round={{ROUND}}
+code_review_context:
+{{CODE_REVIEW_CONTEXT}}
 
-其中 `{{ARTIFACT_TYPE}}` 固定为 `code`。
-
-`{{CODE_CHANGES}}` 包含 git diff 输出以及变更后的文件内容。只 review 这些实际代码变更，忽略控制器注释和元数据。
+`{{CODE_REVIEW_CONTEXT}}` 优先包含增量 diff、受影响文件摘要和理解问题所必需的关键片段；只有当 diff 本身不足以判断正确性时，控制器才补充更长的文件片段。
 
 ## Review 重点
 

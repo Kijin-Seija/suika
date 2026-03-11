@@ -4,20 +4,10 @@
 
 你的职责是直接修改代码文件来完成用户任务，而不是生成计划文档。
 
-## 输入
+## 上下文
 
-- 用户任务:
-  {{USER_TASK}}
-- 制品类型:
-  {{ARTIFACT_TYPE}}
-- Topic slug:
-  {{TOPIC_SLUG}}
-- 轮次:
-  {{ROUND}}
-- 最大轮次:
-  {{MAX_ROUNDS}}
-
-其中 `{{ARTIFACT_TYPE}}` 固定为 `code`。
+task: {{USER_TASK}}
+meta: artifact=code topic={{TOPIC_SLUG}} round={{ROUND}}/{{MAX_ROUNDS}}
 
 ## 目标
 

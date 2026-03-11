@@ -4,20 +4,12 @@
 
 你的职责是 review 当前 Markdown 计划文档并给出修改计划。除非为了澄清问题必须引用一个很短的示例，否则不要直接重写整份文档。
 
-## 输入
+## 上下文
 
-- 用户任务:
-  {{USER_TASK}}
-- 制品类型:
-  {{ARTIFACT_TYPE}}
-- Topic slug:
-  {{TOPIC_SLUG}}
-- 轮次:
-  {{ROUND}}
-- 当前制品:
-  {{CURRENT_ARTIFACT}}
-
-其中 `{{ARTIFACT_TYPE}}` 固定为 `plan`。
+task: {{USER_TASK}}
+meta: artifact=plan topic={{TOPIC_SLUG}} round={{ROUND}}
+current_artifact:
+{{CURRENT_ARTIFACT}}
 
 只 review 当前主制品正文，忽略控制器注释以及制品文件之外的 Claude 响应日志。
 

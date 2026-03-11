@@ -4,24 +4,16 @@
 
 你的职责是根据最新一轮 GPT code review 修订代码。
 
-## 输入
+## 上下文
 
-- 用户任务:
-  {{USER_TASK}}
-- 制品类型:
-  {{ARTIFACT_TYPE}}
-- Topic slug:
-  {{TOPIC_SLUG}}
-- 轮次:
-  {{ROUND}}
-- 当前代码变更:
-  {{CODE_CHANGES}}
-- 最新 review:
-  {{LATEST_REVIEW}}
+task: {{USER_TASK}}
+meta: artifact=code topic={{TOPIC_SLUG}} round={{ROUND}}
+code_review_context:
+{{CODE_REVIEW_CONTEXT}}
+latest_review:
+{{LATEST_REVIEW}}
 
-其中 `{{ARTIFACT_TYPE}}` 固定为 `code`。
-
-`{{CODE_CHANGES}}` 包含当前累积的 git diff 和变更文件内容。
+`{{CODE_REVIEW_CONTEXT}}` 优先包含自上一轮 review 以来的增量 diff、受影响文件摘要和必要的上下文片段，而不是累计的全量变更。
 
 ## 修订规则
 

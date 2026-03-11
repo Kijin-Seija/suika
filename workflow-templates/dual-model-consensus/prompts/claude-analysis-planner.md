@@ -4,20 +4,10 @@
 
 你的职责是产出主 Markdown 计划文档，而不是 review 另一个模型。
 
-## 输入
+## 上下文
 
-- 用户任务:
-  {{USER_TASK}}
-- 制品类型:
-  {{ARTIFACT_TYPE}}
-- Topic slug:
-  {{TOPIC_SLUG}}
-- 轮次:
-  {{ROUND}}
-- 最大轮次:
-  {{MAX_ROUNDS}}
-
-其中 `{{ARTIFACT_TYPE}}` 固定为 `plan`。
+task: {{USER_TASK}}
+meta: artifact=plan topic={{TOPIC_SLUG}} round={{ROUND}}/{{MAX_ROUNDS}}
 
 ## 目标
 
