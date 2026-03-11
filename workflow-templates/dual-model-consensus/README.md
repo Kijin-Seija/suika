@@ -1,6 +1,6 @@
 # 双模型共识工作流
 
-这是一个可复用的模板包，用于在其他项目中初始化“Claude 产出主制品、GPT 做 review、控制器负责收敛判断”的双模型共识工作流。
+这是一个可复用的模板包，用于在其他项目中初始化“Claude 产出主制品、GPT 做 review、控制器只负责调度/收敛/落盘”的双模型共识工作流。
 
 当前版本统一使用 `dual-model-consensus` 命名，并支持两种制品类型：
 
@@ -138,11 +138,20 @@ workflow-templates/dual-model-consensus/agents/gpt-reviewer.md
 最小化的控制器渲染规范示例见 `skill/reference.md` 中的“最小化控制器渲染模板”一节，包含：
 
 - 通用 subagent 调用外壳
-- `REVISION_CONTEXT` 模板
+- `CURRENT_ARTIFACT` + `LATEST_REVIEW` 模板
 - `CODE_REVIEW_CONTEXT` 模板
 - 分歧报告摘要模板
 
-其中 `draft-r1.md` / `revision-rN.md` / `final.md` 用于落盘追踪，可以包含完整 diff；但 `code` 模式真正传给 reviewer 或 Claude 修订轮的，应该是单独渲染的紧凑 `CODE_REVIEW_CONTEXT`，不要把这些跟踪文件原样整包转发。
+其中 `draft-r1.md` / `revision-rN.md` / `final.md` 用于落盘追踪，可以包含完整 diff；但 `code` 模式真正传给 reviewer 或 Claude 修订轮的，应该是由原始 diff、原始片段和文件路径列表组成的 `CODE_REVIEW_CONTEXT`，不要把这些跟踪文件原样整包转发，也不要由控制器改写成新的业务总结。
+
+## 控制器边界
+
+当前版本要求控制器严格保持“非创作”角色：
+
+- 允许：输入标准化、prompt 渲染、subagent 调度、文件落盘、哨兵拆分、`git diff` 捕获、收敛检查、重试或停止
+- 禁止：修改计划正文、直接改代码、替 writer 落实 reviewer 建议、补写遗漏内容、润色主制品、把原始输入改写成控制器自己的业务摘要
+
+如果 writer 或 reviewer 输出不符合契约，控制器只能要求该角色重试，或停止流程；不能自行修补正文。
 
 ## 维护建议
 

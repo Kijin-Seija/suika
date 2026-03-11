@@ -11,7 +11,7 @@ meta: artifact=plan topic={{TOPIC_SLUG}} round={{ROUND}}
 current_artifact:
 {{CURRENT_ARTIFACT}}
 
-只 review 当前主制品正文，忽略控制器注释以及制品文件之外的 Claude 响应日志。
+只 review 当前主制品正文，忽略控制器注释以及制品文件之外的 Claude 响应日志。`{{CURRENT_ARTIFACT}}` 应是主制品原文或引用式摘录，而不是控制器改写后的业务总结。
 
 ## Review 重点
 
@@ -34,6 +34,7 @@ current_artifact:
 - 明确判断当前制品是否可接受而无需继续修订
 - 不要悄悄重写文档
 - 只返回控制器应保存到 `review-rN.md` 的 review 正文
+- 如果输入看起来像控制器改写后的总结而不是主制品原文，应要求控制器用原始主制品重试
 
 ## 输出格式
 

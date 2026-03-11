@@ -13,7 +13,8 @@ code_review_context:
 latest_review:
 {{LATEST_REVIEW}}
 
-`{{CODE_REVIEW_CONTEXT}}` 优先包含自上一轮 review 以来的增量 diff、受影响文件摘要和必要的上下文片段，而不是累计的全量变更。`{{CODE_REVIEW_CONTEXT}}` 不是 `draft-r1.md` 或 `revision-rN.md` 的原文转发，也不应默认附带累计全量 diff 或变更后文件全文。
+`{{CODE_REVIEW_CONTEXT}}` 优先包含自上一轮 review 以来的原始增量 diff、文件路径列表和必要的原始上下文片段，而不是累计的全量变更。`{{CODE_REVIEW_CONTEXT}}` 不是 `draft-r1.md` 或 `revision-rN.md` 的原文转发，也不应默认附带累计全量 diff 或变更后文件全文。
+控制器不得在这里加入自己撰写的业务摘要、修复方案或风险判断。
 
 ## 修订规则
 
@@ -45,3 +46,4 @@ latest_review:
 - 不要自行宣布收敛
 - 不要生成计划文档或 Markdown 制品来代替实际代码修改
 - 不要只在 response 中描述应该做什么修改而不实际去改代码
+- 如果输入看起来像控制器改写后的总结，而不是原始 diff、原始代码片段或原始 review，应要求控制器用原始输入重试

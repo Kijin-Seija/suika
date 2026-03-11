@@ -8,17 +8,14 @@
 
 task: {{USER_TASK}}
 meta: artifact=plan topic={{TOPIC_SLUG}} round={{ROUND}}
-revision_context:
-{{REVISION_CONTEXT}}
+current_artifact:
+{{CURRENT_ARTIFACT}}
+latest_review:
+{{LATEST_REVIEW}}
 
-`{{REVISION_CONTEXT}}` 由控制器裁剪并组装，优先只包含以下内容：
+`{{CURRENT_ARTIFACT}}` 应是最新主制品原文；`{{LATEST_REVIEW}}` 应是最新 review 原文。
 
-- 当前文档骨架或章节清单
-- 被最新 review 影响的章节正文或必要片段
-- 最新 review 中尚未解决的 findings 与修改要求
-- 对未展示章节的保留约束
-
-只有当最新 review 需要整体重写时，控制器才回退为传入完整上一版主制品。
+如果 token 受限，控制器只能做引用式摘录，不能把它们改写成新的业务摘要、合并后的 finding 小结，或控制器自己的修订方案。
 
 ## 修订规则
 
@@ -75,3 +72,4 @@ revision_context:
 - 保持修订后的主制品干净，让 GPT 只 review 正文，不 review 你的说明文字
 - 不要修改或省略这四个哨兵注释
 - 最终输出不要再额外包一层 triple-backtick code fence
+- 如果输入看起来像控制器改写后的摘要，而不是原始主制品或原始 review，应拒绝基于该摘要修订，并要求控制器用原始输入重试
