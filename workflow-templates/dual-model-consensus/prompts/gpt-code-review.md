@@ -12,6 +12,7 @@ code_review_context:
 {{CODE_REVIEW_CONTEXT}}
 
 `{{CODE_REVIEW_CONTEXT}}` 优先包含增量 diff、文件路径列表和理解问题所必需的原始关键片段；只有当 diff 本身不足以判断正确性时，控制器才补充更长的原始文件片段。`{{CODE_REVIEW_CONTEXT}}` 不是 `draft-r1.md` 或 `revision-rN.md` 的原文转发，也不应默认附带累计全量 diff 或变更后文件全文。
+如果上下文里的 diff 或片段出现 `...`、省略 hunk，或 `File Notes` 指向了同仓库文件而正文未完全展开，你应先自行读取相关文件、恢复原始上下文后再 review。
 控制器不得在这里加入自己撰写的业务摘要、修复建议或风险判断。
 
 ## Review 重点
@@ -38,6 +39,7 @@ code_review_context:
 - 不要悄悄重写代码
 - 只返回控制器应保存到 `review-rN.md` 的 review 正文
 - 如果输入看起来像控制器改写后的总结，而不是原始 diff、原始代码片段或引用式摘录，应要求控制器用原始输入重试
+- 如果输入只是带省略号的原始上下文，且给出了足以恢复上下文的文件路径，不要仅因 `...` 直接给出 blocking；先补齐后再审
 
 ## 输出格式
 

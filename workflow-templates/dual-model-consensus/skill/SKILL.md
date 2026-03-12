@@ -259,6 +259,7 @@ GPT 必须：
 除非 prompt 本身无法表达运行约束，否则不要在 prompt 之外重复传任务元信息。优先策略是“一个完整 prompt + 极少量补充说明”，而不是“结构化字段 + 完整 prompt”双重注入。
 
 对 `code` 模式要特别避免把“落盘跟踪文件”和“review 输入上下文”混为一谈。`draft-r1.md`、`revision-rN.md`、`final.md` 是控制器保存到磁盘的跟踪材料，可以包含完整 diff；但传给 GPT reviewer 或 Claude 修订轮的 `CODE_REVIEW_CONTEXT` 必须由原始 diff、原始代码片段和文件路径列表组成，不得包含控制器自行撰写的语义摘要。
+如果受 token 限制只能传带 `...` 的摘录，控制器应尽量附上可定位原文的仓库内文件路径；reviewer 应先基于这些路径自行恢复原始上下文，再决定是否因为上下文不足而拒绝。
 
 每次调用 subagent 时都应明确提供：
 

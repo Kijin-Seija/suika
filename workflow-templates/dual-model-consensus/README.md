@@ -143,6 +143,7 @@ workflow-templates/dual-model-consensus/agents/gpt-reviewer.md
 - 分歧报告摘要模板
 
 其中 `draft-r1.md` / `revision-rN.md` / `final.md` 用于落盘追踪，可以包含完整 diff；但 `code` 模式真正传给 reviewer 或 Claude 修订轮的，应该是由原始 diff、原始片段和文件路径列表组成的 `CODE_REVIEW_CONTEXT`，不要把这些跟踪文件原样整包转发，也不要由控制器改写成新的业务总结。
+如果上下文因 token 限制出现带 `...` 的摘录，控制器仍应保留足以定位原文的仓库内文件路径；reviewer 应先据此自行补齐上下文，而不是仅因出现省略号就直接拒绝审阅。
 
 ## 控制器边界
 
