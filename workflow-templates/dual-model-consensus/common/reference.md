@@ -4,12 +4,12 @@
 
 这份 reference 定义双模型共识工作流的共享契约。
 
-应与 `SKILL.md`、`prompts/` 下的 prompt 模板，以及 `agents/` 下的角色说明一起使用。
+应与宿主层的 `SKILL.md`、`prompts/` 下的 prompt 模板，以及 `agents/` 下的角色说明一起使用。
 
 ## 推荐目录结构
 
 ```text
-.cursor/plans/<topic-slug>/
+<plans-root>/<topic-slug>/
   brief.md
   draft-r1.md
   review-r1.md
@@ -298,7 +298,7 @@ prompt:
 
 ```markdown
 controller_notes:
-- 由控制器负责写 `.cursor/plans/...` 跟踪文件
+- 由控制器负责写 `<plans-root>/...` 跟踪文件
 - code 模式下由 Claude 直接修改工作区文件
 ```
 
