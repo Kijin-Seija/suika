@@ -287,7 +287,7 @@ GPT 必须：
 
 以下条件在 plan 和 code 模式下都适用：
 
-- GPT review 明确认为当前制品 acceptable，且没有 `blocking` 问题
+- GPT review 明确认为当前制品 acceptable，且没有 `blocking` 和 `important` 问题
 - Claude 已经接受所有必要修改，或对剩余分歧说明了其 non-blocking 理由
 - 如果 `review-r1.md` 已经接受 `draft-r1.md`，流程可以直接收敛，无需生成任何 `response-rN.md` 或 `revision-rN.md`
 

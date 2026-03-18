@@ -410,7 +410,7 @@ unresolved_issues:
 - `important`: 会实质提升正确性或质量，但不会直接使整个变更失效
 - `minor`: 文案、润色或可选优化
 
-只有 `blocking` 项必须全部解决，流程才能收敛。
+只有 `blocking` 和 `important` 项都全部解决，流程才能收敛。
 
 ## 控制器检查表
 
@@ -481,6 +481,7 @@ unresolved_issues:
 
 - 最新 GPT verdict 为 `acceptable`
 - 最新 GPT review 的 `blocking-issues: 0`
+- 最新 GPT review 的 `important-issues: 0`
 - 如果被接受的是 `draft-r1.md`，则不要求 Claude response 文件
 - 否则，最新 Claude response 文件必须回应上一轮 GPT review 的每一条问题
 
@@ -508,6 +509,7 @@ unresolved_issues:
 
 - 最新 GPT verdict 为 `acceptable`
 - 最新 GPT review 的 `blocking-issues: 0`
+- 最新 GPT review 的 `important-issues: 0`
 - 如果被接受的是 `draft-r1.md`，则不要求 Claude response 文件
 - 否则，最新 Claude response 文件必须回应上一轮 GPT review 的所有问题
 

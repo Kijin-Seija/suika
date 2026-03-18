@@ -59,6 +59,10 @@ run_cursor_install_test() {
   assert_contains "${target}/AGENTS.md" ".cursor/skills/dual-model-consensus/SKILL.md"
   assert_contains "${target}/AGENTS.md" ".cursor/prompts/dual-model-consensus/"
   assert_contains "${target}/AGENTS.md" ".cursor/plans/<topic-slug>/"
+  assert_contains "${target}/.cursor/skills/dual-model-consensus/SKILL.md" '没有 `blocking` 和 `important` 问题'
+  assert_contains "${target}/.cursor/prompts/dual-model-consensus/gpt-review.md" '没有 `blocking` 或 `important` 问题'
+  assert_contains "${target}/.cursor/prompts/dual-model-consensus/gpt-code-review.md" '没有 `blocking` 或 `important` 问题'
+  assert_contains "${target}/.cursor/skills/dual-model-consensus/reference.md" '只有 `blocking` 和 `important` 项都全部解决，流程才能收敛。'
 
   assert_not_contains "${target}/.cursor/skills/dual-model-consensus/SKILL.md" ".claude/"
 }
@@ -87,6 +91,10 @@ run_claude_install_test() {
   assert_contains "${target}/CLAUDE.md" ".claude/agents/"
   assert_contains "${target}/.claude/skills/dual-model-consensus/SKILL.md" "./prompts/claude-analysis-planner.md"
   assert_contains "${target}/.claude/skills/dual-model-consensus/SKILL.md" ".claude/plans/<topic-slug>/"
+  assert_contains "${target}/.claude/skills/dual-model-consensus/SKILL.md" '没有 `blocking` 和 `important` 问题'
+  assert_contains "${target}/.claude/skills/dual-model-consensus/prompts/gpt-review.md" '没有 `blocking` 或 `important` 问题'
+  assert_contains "${target}/.claude/skills/dual-model-consensus/prompts/gpt-code-review.md" '没有 `blocking` 或 `important` 问题'
+  assert_contains "${target}/.claude/skills/dual-model-consensus/reference.md" '只有 `blocking` 和 `important` 项都全部解决，流程才能收敛。'
   assert_contains "${target}/.claude/agents/gpt-reviewer.md" "model: claude-"
   assert_not_contains "${target}/.claude/skills/dual-model-consensus/SKILL.md" "../../prompts/dual-model-consensus/"
   assert_not_contains "${target}/.claude/skills/dual-model-consensus/SKILL.md" ".cursor/"

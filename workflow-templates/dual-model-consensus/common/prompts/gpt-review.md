@@ -67,6 +67,6 @@ current_artifact:
 
 只有满足以下条件，才能把当前制品标记为 acceptable：
 
-- 没有 `blocking` 问题
+- 没有 `blocking` 或 `important` 问题
 - 文档内部一致
 - 请求的开发计划已经达到可执行、可评审状态

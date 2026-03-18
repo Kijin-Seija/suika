@@ -71,6 +71,6 @@ code_review_context:
 
 只有满足以下条件，才能把当前代码变更标记为 acceptable：
 
-- 没有 `blocking` 问题
+- 没有 `blocking` 或 `important` 问题
 - 代码正确实现了任务需求
 - 没有明显的 bug 或安全隐患
