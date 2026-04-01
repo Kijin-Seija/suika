@@ -45,11 +45,14 @@ claude_block() {
 
 不要默认对所有普通请求启用该流程；只有用户明确要求时才触发。
 
+该工作流通过 launcher 启动外部 Codex reviewer 子进程，而不是在对话里抽象描述“外部 reviewer”：
+
+- `.claude/skills/reviewer/bin/reviewer-run.sh`
+- `.claude/skills/reviewer/schemas/codex-review.schema.json`
+
 该工作流支持两类制品：`code`（代码变更）和 `doc`（计划、分析、说明文档）。
 
-相关模板位于：
-
-- `.claude/skills/reviewer/prompts/`
+外部 reviewer 必须复用当前工作区，在同一项目目录中执行 `codex exec -C <project> -s read-only`；默认模型为 `gpt-5.4`，可通过 `REVIEWER_CODEX_REVIEW_MODEL` 覆盖。
 
 运行产物默认保存在：
 
@@ -133,6 +136,8 @@ main() {
 
   mkdir -p \
     "${target_project}/.claude/skills/reviewer/prompts" \
+    "${target_project}/.claude/skills/reviewer/schemas" \
+    "${target_project}/.claude/skills/reviewer/bin" \
     "${target_project}/.claude/plans"
 
   copy_file "${CLAUDE_DIR}/skill/SKILL.md" "${target_project}/.claude/skills/reviewer/SKILL.md"
@@ -140,12 +145,17 @@ main() {
   copy_file "${COMMON_DIR}/prompts/codex-review-request.md" "${target_project}/.claude/skills/reviewer/prompts/codex-review-request.md"
   copy_file "${COMMON_DIR}/prompts/claude-review-response.md" "${target_project}/.claude/skills/reviewer/prompts/claude-review-response.md"
   copy_file "${COMMON_DIR}/prompts/dispute-report.md" "${target_project}/.claude/skills/reviewer/prompts/dispute-report.md"
+  copy_file "${COMMON_DIR}/schemas/codex-review.schema.json" "${target_project}/.claude/skills/reviewer/schemas/codex-review.schema.json"
+  copy_file "${COMMON_DIR}/bin/reviewer-run.sh" "${target_project}/.claude/skills/reviewer/bin/reviewer-run.sh"
+  chmod +x "${target_project}/.claude/skills/reviewer/bin/reviewer-run.sh"
 
   upsert_claude_block "${target_project}/CLAUDE.md"
 
   echo "已初始化 Claude Code 版 reviewer 工作流:"
   echo "- 目标项目: ${target_project}"
   echo "- skill: .claude/skills/reviewer/SKILL.md"
+  echo "- launcher: .claude/skills/reviewer/bin/reviewer-run.sh"
+  echo "- schemas: .claude/skills/reviewer/schemas/"
   echo "- prompts: .claude/skills/reviewer/prompts/"
   echo "- plans: .claude/plans/"
 }

@@ -1,16 +1,16 @@
 # Reviewer 工作流
 
-这是一个可复用模板包，用于初始化“Claude 完成主任务，随后调用外部 Codex CLI 做结构化 review，并按 review 结果自动迭代修订”的 Claude Code 工作流。
+这是一个可复用模板包，用于初始化“Claude 完成主任务，随后通过安装后的 launcher 启动外部 Codex reviewer 子进程做结构化 review，并按 review 结果自动迭代修订”的 Claude Code 工作流。
 
 当前版本只提供 Claude Code 宿主入口，采用与 `workflow-templates/dual-model-consensus` 相近的目录分层：
 
-- `common/`：共享协议与 prompts
+- `common/`：共享协议、launcher、schemas 与 prompts
 - `claude/`：Claude Code 宿主专属入口与安装脚本
 - `tests/`：安装器回归测试
 
 支持两类审查制品：
 
-- `code`：Claude 修改代码后，Codex 基于 `git diff`、文件列表和必要片段进行 review
+- `code`：Claude 修改代码后，Codex 在与主 agent 相同的工作区中基于 `git diff`、文件列表和必要片段进行 review
 - `doc`：Claude 产出计划、分析、说明等文档后，Codex 基于文档正文进行 review
 
 ## 目录结构
@@ -18,6 +18,10 @@
 ```text
 workflow-templates/reviewer/
   common/
+    bin/
+      reviewer-run.sh
+    schemas/
+      codex-review.schema.json
     reference.md
     prompts/
   claude/
@@ -31,7 +35,7 @@ workflow-templates/reviewer/
 
 ## 触发方式
 
-安装后通过 `CLAUDE.md` 和 `.claude/skills/reviewer/` 暴露入口。
+安装后通过 `CLAUDE.md` 和 `.claude/skills/reviewer/` 暴露入口；实际执行通道由安装后的 launcher `.claude/skills/reviewer/bin/reviewer-run.sh` 提供。
 
 该 skill 只在用户显式要求使用 reviewer 工作流时启用，例如：
 
@@ -66,7 +70,7 @@ workflow-templates/reviewer/
 若达到轮次上限仍未通过，输出争议点并交由人类裁决。
 ```
 
-当前模板安装器会自动把等价说明 upsert 到目标项目的 `CLAUDE.md` 中。
+当前模板安装器会自动把等价说明 upsert 到目标项目的 `CLAUDE.md` 中，并明确写入 launcher 路径、schema 路径以及默认模型约定。
 
 ## 使用说明
 
@@ -106,7 +110,7 @@ workflow-templates/reviewer/
 
 1. 先完成主任务
 2. 将当前结果写入 `.claude/plans/<topic-slug>/`
-3. 调用 Codex CLI 返回结构化 `pass/fail + issues`
+3. 通过 `.claude/skills/reviewer/bin/reviewer-run.sh` 启动外部 Codex reviewer 子进程返回结构化 `pass/fail + issues`
 4. Claude 根据 findings 修订或提出疑问
 5. 反复循环，直到通过或达到轮次上限
 6. 若仍未通过，输出 `dispute-report.md`
@@ -131,6 +135,8 @@ workflow-templates/reviewer/
 
 - `.claude/skills/reviewer/`
 - `.claude/skills/reviewer/prompts/`
+- `.claude/skills/reviewer/schemas/`
+- `.claude/skills/reviewer/bin/reviewer-run.sh`
 - `.claude/plans/`
 - `CLAUDE.md` 中的 reviewer 工作流区块
 
@@ -138,7 +144,7 @@ workflow-templates/reviewer/
 
 1. Claude 先完成用户主任务。
 2. 控制器将当前结果写入 `.claude/plans/<topic-slug>/draft-r1.md`。
-3. 控制器调用外部 `codex cli` 做 review，要求返回严格 JSON。
+3. 控制器调用 `.claude/skills/reviewer/bin/reviewer-run.sh`，由它在当前工作区中以 `codex exec -C <project> -s read-only` 做 review，并要求返回严格 JSON。
 4. 若 review 通过，则生成 `final.md`。
 5. 若 review 未通过，Claude 逐条判断 issue：
    - 属实则修改
@@ -147,6 +153,42 @@ workflow-templates/reviewer/
 6. 控制器将最新制品、上一轮 review、以及 Claude 回应再次发给 Codex。
 7. 循环直至通过，或达到最大轮次；默认 `5` 轮。
 8. 若达到上限仍未通过，则生成 `dispute-report.md`，交由人类裁决。
+
+## 环境变量
+
+launcher 默认使用：
+
+- `REVIEWER_CODEX_BIN`：外部 Codex CLI，可覆盖可执行文件路径；未设置时回退到 `IMPLEMENTATION_LOOP_CODEX_BIN`，再回退到 `codex`
+- `REVIEWER_CODEX_REVIEW_MODEL`：外部 reviewer 模型；未设置时回退到兼容变量，最终默认 `gpt-5.4`
+
+reviewer launcher 固定在当前项目目录执行 `codex exec -C <project> -s read-only`，不会创建 worktree、临时副本或其他看不到未提交改动的隔离环境。
+
+## 手动执行 launcher
+
+安装后，Claude 宿主应优先调用 launcher，而不是在对话里手工模拟外部 reviewer：
+
+```bash
+.claude/skills/reviewer/bin/reviewer-run.sh review \
+  --task "修复登录页表单校验问题" \
+  --artifact-type code \
+  --topic login-validation-fix \
+  --round 1 \
+  --max-rounds 5 \
+  --artifact .claude/plans/login-validation-fix/draft-r1.md
+```
+
+达到轮次上限后，可用同一通道生成分歧报告：
+
+```bash
+.claude/skills/reviewer/bin/reviewer-run.sh dispute \
+  --task "修复登录页表单校验问题" \
+  --artifact-type code \
+  --topic login-validation-fix \
+  --max-rounds 5 \
+  --latest-artifact .claude/plans/login-validation-fix/revision-r5.md \
+  --latest-review .claude/plans/login-validation-fix/review-r5.md \
+  --latest-response .claude/plans/login-validation-fix/response-r5.md
+```
 
 ## 自检
 

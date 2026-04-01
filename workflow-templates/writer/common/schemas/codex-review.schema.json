@@ -1,0 +1,72 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "type": "object",
+  "additionalProperties": false,
+  "required": [
+    "status",
+    "summary",
+    "issues",
+    "next_action"
+  ],
+  "properties": {
+    "status": {
+      "type": "string",
+      "enum": [
+        "pass",
+        "fail"
+      ]
+    },
+    "summary": {
+      "type": "string",
+      "minLength": 1
+    },
+    "issues": {
+      "type": "array",
+      "items": {
+        "type": "object",
+        "additionalProperties": false,
+        "required": [
+          "id",
+          "severity",
+          "description",
+          "fix_suggestion",
+          "location"
+        ],
+        "properties": {
+          "id": {
+            "type": "string",
+            "minLength": 1
+          },
+          "severity": {
+            "type": "string",
+            "enum": [
+              "blocking",
+              "important",
+              "minor"
+            ]
+          },
+          "description": {
+            "type": "string",
+            "minLength": 1
+          },
+          "fix_suggestion": {
+            "type": "string",
+            "minLength": 1
+          },
+          "location": {
+            "type": "string",
+            "minLength": 1
+          }
+        }
+      }
+    },
+    "next_action": {
+      "type": "string",
+      "enum": [
+        "approve",
+        "revise",
+        "human_judgment"
+      ]
+    }
+  }
+}

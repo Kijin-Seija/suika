@@ -7,7 +7,8 @@
 该工作流的角色边界如下：
 
 - Claude：完成用户主任务，并根据 review 结果修订代码或文档
-- Codex CLI：只负责 review，返回结构化结论与问题列表
+- 安装后的 launcher `.claude/skills/reviewer/bin/reviewer-run.sh`：负责在当前工作区启动外部 Codex reviewer 子进程
+- 外部 Codex reviewer 子进程：只负责 review，返回结构化结论与问题列表
 - 控制器：负责调度、落盘、解析、收敛判断和停止条件，不参与业务正文创作或改写
 
 ## 推荐目录结构
@@ -51,7 +52,9 @@
 
 - 标准化输入
 - 渲染 prompt
-- 调用外部 reviewer
+- 调用 `.claude/skills/reviewer/bin/reviewer-run.sh`
+- 确保 launcher 使用 `.claude/skills/reviewer/schemas/codex-review.schema.json`
+- 确保外部 reviewer 以 `codex exec -C <project> -s read-only` 运行在与主 agent 相同的工作目录和工作区状态中
 - 原样保存角色输出
 - 解析固定 JSON 字段用于收敛检查
 - 捕获 `git diff`、文件路径列表和必要片段
@@ -89,6 +92,10 @@
 
 实际代码变更发生在工作区文件中，跟踪文件只用于记录和传递 review 上下文。
 
+Codex reviewer 必须直接读取当前工作区中的这些文件与未提交改动；如果切到独立 worktree、临时副本或隔离目录，会看不到主 agent 的最新改动，从而导致错误的未通过结论。因此 reviewer 运行环境必须与主 agent 保持一致。
+
+这意味着 reviewer 不能由 Claude 内部 subagent 冒充，必须通过 launcher 在当前项目目录里启动真实的外部 `codex exec` 子进程。
+
 ### doc 模式
 
 当 `artifact-type` 为 `doc` 时，`draft-r1.md`、`revision-rN.md` 和 `final.md` 保存当前文档正文，必要时可以附带：
@@ -101,7 +108,7 @@
 
 ## Codex Review JSON 契约
 
-每个 `review-rN.md` 都必须保存 Codex 原样返回的 JSON。推荐结构如下：
+每个 `review-rN.md` 都必须保存 Codex 原样返回的 JSON。launcher 使用的 schema 文件路径固定为 `.claude/skills/reviewer/schemas/codex-review.schema.json`。推荐结构如下：
 
 ```json
 {
