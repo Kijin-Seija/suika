@@ -29,7 +29,7 @@ assert_executable() {
 assert_contains() {
   local path="$1"
   local expected="$2"
-  grep -Fq "${expected}" "${path}" || fail "expected '${expected}' in ${path}"
+  grep -Fq -- "${expected}" "${path}" || fail "expected '${expected}' in ${path}"
 }
 
 run_codex_install_test() {
@@ -55,12 +55,16 @@ run_codex_install_test() {
   assert_contains "${target}/AGENTS.md" ".codex/skills/writer/SKILL.md"
   assert_contains "${target}/AGENTS.md" ".codex/plans/<topic-slug>/"
   assert_contains "${target}/AGENTS.md" "writer 可选 Claude Code 或独立 Codex 子进程"
+  assert_contains "${target}/AGENTS.md" "OpenSpec proposal/design/spec/tasks"
   assert_contains "${target}/.codex/skills/writer/SKILL.md" '默认 `5`'
   assert_contains "${target}/.codex/skills/writer/SKILL.md" '不要默认启用。'
   assert_contains "${target}/.codex/skills/writer/SKILL.md" '使用 writer skill'
+  assert_contains "${target}/.codex/skills/writer/SKILL.md" 'openspec-artifacts'
   assert_contains "${target}/.codex/skills/writer/SKILL.md" 'writer 类型：`claude` 或 `codex`'
+  assert_contains "${target}/.codex/skills/writer/reference.md" '`artifact-type: code | openspec-artifacts`'
   assert_contains "${target}/.codex/skills/writer/reference.md" '`status`: `pass | fail`'
   assert_contains "${target}/.codex/skills/writer/reference.md" '`blocking` 和 `important`'
+  assert_contains "${target}/.codex/skills/writer/bin/writer-run.sh" '--artifact-type'
   assert_contains "${target}/.codex/skills/writer/bin/writer-run.sh" 'Codex review'
   assert_contains "${target}/.codex/skills/writer/bin/writer-run.sh" 'WRITER_CLAUDE_MAX_ATTEMPTS'
   assert_contains "${target}/.codex/skills/writer/bin/writer-run.sh" 'writer-handoff-r${round}.md'

@@ -47,10 +47,11 @@ agents_block() {
 
 不要默认对所有普通请求启用该流程；只有用户明确要求时才触发。
 
-该工作流只用于代码实现任务：
+该工作流适用于会落盘到仓库的制品任务：
 
 - Codex 负责流程调度和审查
-- writer 可选 Claude Code 或独立 Codex 子进程来负责开发和修订
+- writer 可选 Claude Code 或独立 Codex 子进程来负责开发、制品编写和修订
+- 支持代码实现，以及 OpenSpec proposal/design/spec/tasks 等制品任务
 - 默认最大审查轮次为 `5`
 
 运行产物保存在：

@@ -12,17 +12,22 @@
 
 ## 适用范围
 
-该工作流只适用于 `code` 任务：
+该工作流适用于两类会直接写入仓库的任务：
 
-- 实现功能
-- 修复 bug
-- 做受约束的重构
+- `code`
+  - 实现功能
+  - 修复 bug
+  - 做受约束的重构
+- `openspec-artifacts`
+  - 生成或修订 OpenSpec proposal
+  - 生成或修订 OpenSpec design/spec/tasks
+  - 同步与 OpenSpec 制品直接相关的配套说明文件
 
 不适用于：
 
-- 计划文档
-- 需求分析
-- 纯说明文档
+- 不落盘到仓库的计划讨论
+- 纯需求分析
+- 只给建议、不修改仓库文件的说明性对话
 
 ## 推荐目录结构
 
@@ -50,7 +55,7 @@
 `brief.md` 至少应记录：
 
 - `topic-slug`
-- `artifact-type: code`
+- `artifact-type: code | openspec-artifacts`
 - `max-review-rounds`
 - `current-round`
 - `execution-mode: writer`
@@ -69,23 +74,28 @@ Launcher 作为控制器时，只允许执行以下机械工作：
 - 生成和调用 prompt
 - 原样保存 Claude/Codex 输出
 - 校验 JSON schema
-- 采集 `git diff`
+- 采集工作区 `git diff`
 - 判断是否收敛
 - 达到上限时生成争议报告
 
 控制器禁止：
 
-- 代替 writer 改代码
+- 代替 writer 改工作区文件
 - 擅自改写 Codex findings 后再转给 writer
 - 在 JSON 不合法时脑补字段
 - 在 writer 未响应所有问题时强行推进下一轮
 
 ## 制品结构
 
-`draft-r1.md`、`revision-rN.md` 和 `final.md` 采用以下结构：
+`draft-r1.md`、`revision-rN.md` 和 `final.md` 保存的是本轮仓库制品快照。
+
+- 当 `artifact-type=code` 时，标题建议为 `# 代码变更摘要`
+- 当 `artifact-type=openspec-artifacts` 时，标题建议为 `# OpenSpec 制品变更摘要`
+
+建议结构如下：
 
 ````markdown
-# 代码变更摘要
+# <制品摘要标题>
 
 ## 变更概述
 <Claude summary>
@@ -102,7 +112,7 @@ Launcher 作为控制器时，只允许执行以下机械工作：
 ```
 ````
 
-实际代码变更发生在工作区文件中，Markdown 只是审查上下文快照。
+实际变更发生在工作区文件中，Markdown 只是审查上下文快照。对 `openspec-artifacts` 任务来说，`变更文件` 通常是 proposal/design/spec/tasks 及其直接依赖文件。
 
 `writer-handoff-rN.md` 是给修订轮 writer 用的精简上下文，应该优先包含：
 
@@ -126,6 +136,11 @@ writer 首轮实现返回 JSON，schema 位于：
 - `verification`
 - `changed_files`
 - `questions`
+
+其中：
+
+- `verification` 对 `code` 任务通常是测试/构建结果
+- `verification` 对 `openspec-artifacts` 任务通常是 OpenSpec 校验、目录一致性检查，或未执行时的明确说明
 
 ### Writer 修订输出
 
@@ -202,7 +217,7 @@ Codex review 返回 JSON，schema 位于：
 - 如果 writer JSON 不合法，应停止并保留现场
 - 如果 writer 修订未覆盖上一轮全部 issue，应停止并保留现场
 - 如果 Codex JSON 不合法，应停止并保留现场
-- 如果 launcher 中途失败，不要自动回滚已生成代码
+- 如果 launcher 中途失败，不要自动回滚已生成的工作区修改
 
 ## Prompt 使用规则
 
@@ -211,6 +226,7 @@ Codex review 返回 JSON，schema 位于：
 动态上下文至少应包含：
 
 - 用户任务
+- `artifact-type`
 - topic slug
 - 当前轮次
 - 最大轮次

@@ -1,15 +1,20 @@
 # 实现闭环工作流
 
-这是一个可复用模板包，用于初始化“Codex 作为控制器和 reviewer，writer 可选 Claude Code CLI 或独立 Codex CLI 子进程负责实现与修订”的代码实现工作流。
+这是一个可复用模板包，用于初始化“Codex 作为控制器和 reviewer，writer 可选 Claude Code CLI 或独立 Codex CLI 子进程负责实现、制品编写与修订”的闭环工作流。
 
-该工作流只面向代码任务，不处理计划文档或纯分析任务。
+该工作流面向会落盘到仓库的制品任务：
+
+- 代码实现、bug 修复、受约束重构
+- OpenSpec proposal/design/spec/tasks 及其配套说明的生成与修订
+
+它不适用于只做口头 plan、纯分析或不修改仓库文件的说明性任务。
 
 ## 工作流效果
 
 触发后，控制器会执行以下闭环：
 
 1. Codex 将实现任务交给所选 writer。
-2. 所选 writer 直接修改工作区代码，并返回结构化变更摘要。
+2. 所选 writer 直接修改工作区文件，并返回结构化变更摘要。
 3. Codex 基于最新 `git diff`、变更摘要和上一轮回应做结构化审查。
 4. 如果未通过，writer 逐条判断问题：
    - 属实则修复
@@ -77,6 +82,7 @@ workflow-templates/writer/
 请走实现闭环工作流，让 Claude Code 开发，Codex 审查。
 请使用 writer skill，让 Codex 作为 writer 来实现这个 bug。
 使用 writer skill 修复这个 bug，最多审查 3 轮。
+请用 writer workflow 产出 OpenSpec proposal/design/spec/tasks，让 Claude Code 写，Codex 审核。
 ```
 
 如果用户没有显式要求，不要默认启用该流程。
@@ -86,7 +92,7 @@ workflow-templates/writer/
 - 当前项目必须是 git 仓库
 - 启动时工作区必须是 clean working tree
 - `claude`、`codex`、`git`、`python3` 必须可用
-- 当前目录应当是你信任的仓库，因为 Claude Code 会被允许直接修改代码
+- 当前目录应当是你信任的仓库，因为 Claude Code 会被允许直接修改工作区文件
 
 ## 手动执行 launcher
 
@@ -95,6 +101,7 @@ workflow-templates/writer/
 ```bash
 .codex/skills/writer/bin/writer-run.sh run \
   --task "修复支付回调重试逻辑" \
+  --artifact-type code \
   --writer claude \
   --topic payment-retry-fix \
   --max-rounds 5
@@ -104,6 +111,21 @@ workflow-templates/writer/
 
 - `claude`：默认值，由 Claude Code CLI 负责实现与修订
 - `codex`：由独立的 `codex exec` 子进程负责实现与修订，当前控制器会话仍只负责调度和审查
+
+`--artifact-type` 支持：
+
+- `code`：默认值，用于代码实现任务
+- `openspec-artifacts`：用于 OpenSpec proposal/design/spec/tasks 及其配套文档
+
+例如生成 OpenSpec 制品时可以这样运行：
+
+```bash
+.codex/skills/writer/bin/writer-run.sh run \
+  --task "运行 openspec-propose，为新的导出流程生成 proposal/design/spec/tasks，并补齐必要说明" \
+  --artifact-type openspec-artifacts \
+  --writer claude \
+  --topic export-openspec
+```
 
 运行产物会写入：
 
@@ -118,6 +140,12 @@ workflow-templates/writer/
 - `*.claude-stderr-aN.log`：Claude 调用失败时的 stderr，便于排查 400/限流/服务错误
 
 这些文件都属于运行日志，不需要手工维护。
+
+对于 OpenSpec 任务，launcher 仍会沿用同一套审查闭环；差异主要体现在：
+
+- `brief.md` 会记录 `artifact-type: openspec-artifacts`
+- artifact 快照会以 OpenSpec 制品摘要形式落盘
+- writer prompt 会明确要求优先遵守仓库已有的 OpenSpec 命令、模板与目录约定
 
 ## Claude 稳定性参数
 
