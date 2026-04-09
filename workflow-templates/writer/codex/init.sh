@@ -12,7 +12,24 @@ LEGACY_BEGIN_MARKER="<!-- BEGIN implementation-loop -->"
 LEGACY_END_MARKER="<!-- END implementation-loop -->"
 
 usage() {
-  echo "用法: $0 <target-project>" >&2
+  echo "用法: $0 [--default-writer <claude|codex>] <target-project>" >&2
+}
+
+validate_writer_kind() {
+  local writer_kind="$1"
+  [[ "${writer_kind}" == "claude" || "${writer_kind}" == "codex" ]] || {
+    echo "错误: --default-writer 只能是 claude 或 codex" >&2
+    exit 1
+  }
+}
+
+write_writer_config() {
+  local destination="$1"
+  local default_writer="$2"
+
+  cat > "${destination}" <<EOF
+WRITER_DEFAULT_WRITER=${default_writer}
+EOF
 }
 
 require_directory() {
@@ -37,7 +54,10 @@ remove_if_exists() {
 }
 
 agents_block() {
-  cat <<'EOF'
+  local default_writer="$1"
+  local template
+
+  template="$(cat <<'EOF'
 <!-- BEGIN writer -->
 ## 实现闭环工作流
 
@@ -51,6 +71,7 @@ agents_block() {
 
 - Codex 负责流程调度和审查
 - writer 可选 Claude Code 或独立 Codex 子进程来负责开发、制品编写和修订
+- 项目默认 writer: `__DEFAULT_WRITER__`；用户未显式指定时按此值执行
 - 支持代码实现，以及 OpenSpec proposal/design/spec/tasks 等制品任务
 - 默认最大审查轮次为 `5`
 
@@ -59,15 +80,19 @@ agents_block() {
 - `.codex/plans/<topic-slug>/`
 <!-- END writer -->
 EOF
+)"
+
+  printf '%s\n' "${template//__DEFAULT_WRITER__/${default_writer}}"
 }
 
 upsert_agents_block() {
   local file="$1"
+  local default_writer="$2"
   local block
   local block_file
   local tmp_file
 
-  block="$(agents_block)"
+  block="$(agents_block "${default_writer}")"
   block_file="$(mktemp)"
   tmp_file="$(mktemp)"
   printf "%s\n" "${block}" > "${block_file}"
@@ -126,12 +151,34 @@ clean_legacy_install() {
 
 main() {
   local target_project
+  local default_writer="claude"
+
+  while [[ $# -gt 0 ]]; do
+    case "${1-}" in
+      --default-writer)
+        default_writer="${2-}"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        usage
+        exit 1
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
 
   [[ $# -eq 1 ]] || {
     usage
     exit 1
   }
 
+  validate_writer_kind "${default_writer}"
   target_project="$1"
   require_directory "${target_project}"
 
@@ -154,12 +201,14 @@ main() {
   copy_file "${COMMON_DIR}/schemas/claude-response.schema.json" "${target_project}/.codex/skills/writer/schemas/claude-response.schema.json"
   copy_file "${COMMON_DIR}/schemas/codex-review.schema.json" "${target_project}/.codex/skills/writer/schemas/codex-review.schema.json"
   copy_file "${COMMON_DIR}/bin/writer-run.sh" "${target_project}/.codex/skills/writer/bin/writer-run.sh"
+  write_writer_config "${target_project}/.codex/skills/writer/config.env" "${default_writer}"
   chmod +x "${target_project}/.codex/skills/writer/bin/writer-run.sh"
 
-  upsert_agents_block "${target_project}/AGENTS.md"
+  upsert_agents_block "${target_project}/AGENTS.md" "${default_writer}"
 
   echo "已初始化 Codex 版实现闭环工作流:"
   echo "- 目标项目: ${target_project}"
+  echo "- default writer: ${default_writer}"
   echo "- skill: .codex/skills/writer/SKILL.md"
   echo "- launcher: .codex/skills/writer/bin/writer-run.sh"
   echo "- outputs: .codex/plans/"

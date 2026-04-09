@@ -145,19 +145,39 @@ done
 }
 
 prompt="$(cat)"
-printf '%s' "${prompt}" > "${log_dir}/codex-review-prompt.md"
+if [[ "${prompt}" == *"当前 artifact:"* ]]; then
+  printf '%s' "${prompt}" > "${log_dir}/codex-review-prompt.md"
+
+  [[ "${prompt}" == *"制品类型: openspec-artifacts"* ]] || {
+    echo "missing openspec artifact type in Codex review prompt" >&2
+    exit 22
+  }
+  [[ "${prompt}" == *"当前 artifact:"* ]] || {
+    echo "missing current artifact reference in Codex review prompt" >&2
+    exit 23
+  }
+
+  cat > "${output_path}" <<'JSON'
+{"status":"pass","summary":"Smoke test reviewer accepted the OpenSpec artifacts flow.","issues":[],"next_action":"approve"}
+JSON
+  exit 0
+fi
+
+printf '%s' "${prompt}" > "${log_dir}/codex-writer-prompt.md"
 
 [[ "${prompt}" == *"制品类型: openspec-artifacts"* ]] || {
-  echo "missing openspec artifact type in Codex prompt" >&2
-  exit 22
+  echo "missing openspec artifact type in Codex writer prompt" >&2
+  exit 24
 }
-[[ "${prompt}" == *"当前 artifact:"* ]] || {
-  echo "missing current artifact reference in Codex prompt" >&2
-  exit 23
+[[ "${prompt}" == *"运行 openspec-propose，为新的导出流程生成 proposal/design/spec/tasks"* ]] || {
+  echo "missing task text in Codex writer prompt" >&2
+  exit 25
 }
 
+openspec-propose export-flow
+
 cat > "${output_path}" <<'JSON'
-{"status":"pass","summary":"Smoke test reviewer accepted the OpenSpec artifacts flow.","issues":[],"next_action":"approve"}
+{"summary":"Ran fake openspec-propose and generated proposal/design/spec/tasks for export-flow.","verification":"Executed stub openspec-propose and confirmed proposal/design/spec/tasks files were created.","changed_files":[{"path":"docs/openspec/export-flow/proposal.md","summary":"Create proposal artifact for export flow."},{"path":"docs/openspec/export-flow/design.md","summary":"Create design artifact for export flow."},{"path":"docs/openspec/export-flow/spec.md","summary":"Create spec artifact for export flow."},{"path":"docs/openspec/export-flow/tasks.md","summary":"Create tasks artifact for export flow."}],"questions":[]}
 JSON
 EOF
 chmod +x "${STUB_BIN}/codex"
@@ -172,11 +192,13 @@ git -C "${REPO_DIR}" config user.email "writer-smoke@example.com"
 git -C "${REPO_DIR}" add README.md
 git -C "${REPO_DIR}" commit -m "init" >/dev/null
 
-bash "${INSTALLER}" "${REPO_DIR}"
+bash "${INSTALLER}" --default-writer codex "${REPO_DIR}"
 
 assert_file "${REPO_DIR}/.codex/skills/writer/bin/writer-run.sh"
 assert_contains "${REPO_DIR}/AGENTS.md" "OpenSpec proposal/design/spec/tasks"
+assert_contains "${REPO_DIR}/AGENTS.md" '项目默认 writer: `codex`'
 assert_contains "${REPO_DIR}/.codex/skills/writer/SKILL.md" "openspec-artifacts"
+assert_contains "${REPO_DIR}/.codex/skills/writer/config.env" "WRITER_DEFAULT_WRITER=codex"
 
 git -C "${REPO_DIR}" add .
 git -C "${REPO_DIR}" commit -m "install writer workflow" >/dev/null
@@ -188,16 +210,14 @@ git -C "${REPO_DIR}" commit -m "install writer workflow" >/dev/null
   bash ".codex/skills/writer/bin/writer-run.sh" run \
     --task "运行 openspec-propose，为新的导出流程生成 proposal/design/spec/tasks，并补齐必要说明" \
     --artifact-type openspec-artifacts \
-    --writer claude \
     --topic export-flow \
     --max-rounds 2
 )
 
-assert_file "${LOG_DIR}/claude-prompt.md"
+assert_file "${LOG_DIR}/codex-writer-prompt.md"
 assert_file "${LOG_DIR}/codex-review-prompt.md"
 assert_file "${LOG_DIR}/openspec-propose.log"
-assert_contains "${LOG_DIR}/claude-prompt.md" "制品类型: openspec-artifacts"
-assert_contains "${LOG_DIR}/claude-prompt.md" "OpenSpec 任务约束"
+assert_contains "${LOG_DIR}/codex-writer-prompt.md" "制品类型: openspec-artifacts"
 assert_contains "${LOG_DIR}/codex-review-prompt.md" "制品类型: openspec-artifacts"
 assert_contains "${LOG_DIR}/openspec-propose.log" "openspec-propose export-flow"
 

@@ -58,6 +58,12 @@ workflow-templates/writer/
 ./workflow-templates/writer/init.sh /path/to/target-project
 ```
 
+安装时也可以预先固定默认 writer：
+
+```bash
+./workflow-templates/writer/init.sh --default-writer codex /path/to/target-project
+```
+
 也可以显式调用：
 
 ```bash
@@ -69,6 +75,7 @@ workflow-templates/writer/
 - `.codex/skills/writer/`
 - `.codex/skills/writer/prompts/`
 - `.codex/skills/writer/schemas/`
+- `.codex/skills/writer/config.env`
 - `.codex/skills/writer/bin/writer-run.sh`
 - `.codex/plans/`
 - `AGENTS.md` 中的工作流入口区块
@@ -87,6 +94,8 @@ workflow-templates/writer/
 
 如果用户没有显式要求，不要默认启用该流程。
 
+如果安装时已经设置项目默认 writer，那么只要用户显式要求使用 `writer skill`，就会优先按该默认值执行；只有需要临时覆盖时，才需要在 prompt 里额外说明 `writer 用 codex` 或 `writer 用 claude`。
+
 ## 前提条件
 
 - 当前项目必须是 git 仓库
@@ -102,15 +111,16 @@ workflow-templates/writer/
 .codex/skills/writer/bin/writer-run.sh run \
   --task "修复支付回调重试逻辑" \
   --artifact-type code \
-  --writer claude \
   --topic payment-retry-fix \
   --max-rounds 5
 ```
 
 `--writer` 支持：
 
-- `claude`：默认值，由 Claude Code CLI 负责实现与修订
+- `claude`：由 Claude Code CLI 负责实现与修订
 - `codex`：由独立的 `codex exec` 子进程负责实现与修订，当前控制器会话仍只负责调度和审查
+
+如果未传 `--writer`，launcher 会优先读取 `.codex/skills/writer/config.env` 中的 `WRITER_DEFAULT_WRITER`；新安装默认写入 `claude`，也可以在安装时改成 `codex`。
 
 `--artifact-type` 支持：
 
@@ -123,7 +133,6 @@ workflow-templates/writer/
 .codex/skills/writer/bin/writer-run.sh run \
   --task "运行 openspec-propose，为新的导出流程生成 proposal/design/spec/tasks，并补齐必要说明" \
   --artifact-type openspec-artifacts \
-  --writer claude \
   --topic export-openspec
 ```
 

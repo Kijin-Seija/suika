@@ -6,6 +6,7 @@ SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SELF_DIR}/.." && pwd)"
 PROMPTS_DIR="${SKILL_DIR}/prompts"
 SCHEMAS_DIR="${SKILL_DIR}/schemas"
+WRITER_CONFIG_PATH="${SKILL_DIR}/config.env"
 
 CLAUDE_BIN="${WRITER_CLAUDE_BIN:-${IMPLEMENTATION_LOOP_CLAUDE_BIN:-claude}}"
 CODEX_BIN="${WRITER_CODEX_BIN:-${IMPLEMENTATION_LOOP_CODEX_BIN:-codex}}"
@@ -48,6 +49,36 @@ normalize_artifact_type() {
       return 1
       ;;
   esac
+}
+
+normalize_writer_kind() {
+  local raw="${1:-}"
+
+  case "${raw}" in
+    claude|codex)
+      printf '%s\n' "${raw}"
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+resolve_default_writer() {
+  if [[ -f "${WRITER_CONFIG_PATH}" ]]; then
+    local configured_writer=""
+    configured_writer="$(
+      unset WRITER_DEFAULT_WRITER
+      # shellcheck disable=SC1090
+      source "${WRITER_CONFIG_PATH}"
+      printf '%s' "${WRITER_DEFAULT_WRITER:-}"
+    )"
+    [[ -n "${configured_writer}" ]] || fail "writer 配置缺少 WRITER_DEFAULT_WRITER: ${WRITER_CONFIG_PATH}"
+    normalize_writer_kind "${configured_writer}" || fail "writer 配置非法: ${configured_writer} (${WRITER_CONFIG_PATH})"
+    return
+  fi
+
+  printf 'claude\n'
 }
 
 slugify() {
@@ -818,7 +849,7 @@ main() {
   local subcommand="${1-}"
   local task=""
   local artifact_type="code"
-  local writer_kind="claude"
+  local writer_kind=""
   local topic=""
   local max_rounds="5"
   local workdir=""
@@ -867,7 +898,6 @@ main() {
 
   [[ -n "${task}" ]] || fail "必须提供 --task"
   artifact_type="$(normalize_artifact_type "${artifact_type}")" || fail "--artifact-type 只能是 code、openspec 或 openspec-artifacts"
-  [[ "${writer_kind}" == "claude" || "${writer_kind}" == "codex" ]] || fail "--writer 只能是 claude 或 codex"
   [[ "${max_rounds}" =~ ^[0-9]+$ ]] || fail "--max-rounds 必须是正整数"
   (( max_rounds >= 1 )) || fail "--max-rounds 必须大于等于 1"
   [[ "${CLAUDE_MAX_ATTEMPTS}" =~ ^[0-9]+$ ]] || fail "WRITER_CLAUDE_MAX_ATTEMPTS 必须是正整数"
@@ -877,6 +907,12 @@ main() {
 
   if [[ -n "${workdir}" ]]; then
     cd "${workdir}"
+  fi
+
+  if [[ -n "${writer_kind}" ]]; then
+    writer_kind="$(normalize_writer_kind "${writer_kind}")" || fail "--writer 只能是 claude 或 codex"
+  else
+    writer_kind="$(resolve_default_writer)"
   fi
 
   if [[ -z "${topic}" ]]; then

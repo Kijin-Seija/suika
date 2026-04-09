@@ -8,21 +8,39 @@ CODEX_INSTALLER="${SCRIPT_DIR}/codex/init.sh"
 usage() {
   cat >&2 <<'EOF'
 用法:
-  init.sh <target-project>         默认安装 Codex 版
-  init.sh --codex <target-project> 只安装 Codex 版
+  init.sh [--default-writer <claude|codex>] <target-project>
+  init.sh --codex [--default-writer <claude|codex>] <target-project>
 EOF
 }
 
 main() {
   local mode="codex"
+  local default_writer=""
   local target_project=""
 
-  case "${1-}" in
-    --codex)
-      mode="codex"
-      shift
-      ;;
-  esac
+  while [[ $# -gt 0 ]]; do
+    case "${1-}" in
+      --codex)
+        mode="codex"
+        shift
+        ;;
+      --default-writer)
+        default_writer="${2-}"
+        shift 2
+        ;;
+      --)
+        shift
+        break
+        ;;
+      -*)
+        usage
+        exit 1
+        ;;
+      *)
+        break
+        ;;
+    esac
+  done
 
   [[ $# -eq 1 ]] || {
     usage
@@ -33,6 +51,9 @@ main() {
 
   case "${mode}" in
     codex)
+      if [[ -n "${default_writer}" ]]; then
+        exec bash "${CODEX_INSTALLER}" --default-writer "${default_writer}" "${target_project}"
+      fi
       exec bash "${CODEX_INSTALLER}" "${target_project}"
       ;;
     *)
