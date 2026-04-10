@@ -12,6 +12,7 @@ import subprocess
 import sys
 import tempfile
 import time
+import traceback
 import urllib.error
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
@@ -156,6 +157,11 @@ def print_json(payload: dict[str, Any]) -> None:
     print(json.dumps(payload, ensure_ascii=True, indent=2))
 
 
+def remove_if_exists(path: Path) -> None:
+    if path.exists():
+        path.unlink()
+
+
 def remove_runtime(session: str) -> None:
     state_dir = runtime_dir(session)
     if state_dir.exists():
@@ -186,29 +192,77 @@ def maybe_terminate(pid: int | None) -> None:
         return
 
 
+def parse_pid(value: Any) -> int | None:
+    if isinstance(value, int):
+        return value
+    if isinstance(value, str) and value.isdigit():
+        return int(value)
+    return None
+
+
+def prepare_runtime(session: str) -> None:
+    runtime_dir(session).mkdir(parents=True, exist_ok=True)
+    clear_log(log_file_for(session))
+    clear_log(server_log_for(session))
+    remove_if_exists(state_file_for(session))
+    remove_if_exists(pid_file_for(session))
+
+
+def read_log_tail(path: Path, max_lines: int = 40, max_chars: int = 4000) -> str:
+    if not path.exists():
+        return ""
+    content = path.read_text(encoding="utf-8", errors="replace").strip()
+    if not content:
+        return ""
+    lines = content.splitlines()
+    tail = "\n".join(lines[-max_lines:])
+    if len(tail) > max_chars:
+        tail = tail[-max_chars:]
+    return tail
+
+
+def start_error_payload(session: str, host: str, attempted_ports: list[int]) -> dict[str, Any]:
+    payload = {
+        "status": "error",
+        "session": session,
+        "agent": AGENT_KIND,
+        "project_root": PROJECT_ROOT,
+        "message": "failed to start debug log server",
+        "host": host,
+        "attempted_ports": attempted_ports,
+        "state_dir": str(runtime_dir(session)),
+        "log_file": str(log_file_for(session)),
+        "server_log": str(server_log_for(session)),
+    }
+    server_log_tail = read_log_tail(server_log_for(session))
+    if server_log_tail:
+        payload["server_log_tail"] = server_log_tail
+    state = load_state(session)
+    if state.get("status") != "missing":
+        payload["last_state"] = enrich_state(state, session)
+    return payload
+
+
 def start_session(session: str, host: str, requested_port: int) -> int:
     state = load_state(session)
     if state.get("status") != "missing" and ping(state):
         print_json(enrich_state(state, session) | {"status": "ready"})
         return 0
 
-    if state.get("pid"):
-        maybe_terminate(int(state["pid"]))
-    remove_runtime(session)
+    maybe_terminate(parse_pid(state.get("pid")))
 
     ports_to_try = [requested_port]
     if requested_port != 0:
         ports_to_try.append(0)
 
     for candidate_port in ports_to_try:
-        state_dir = runtime_dir(session)
-        state_dir.mkdir(parents=True, exist_ok=True)
-        clear_log(log_file_for(session))
+        prepare_runtime(session)
         log_handle = server_log_for(session).open("ab")
         try:
             process = subprocess.Popen(
                 [
                     sys.executable,
+                    "-u",
                     str(SCRIPT_PATH),
                     "serve",
                     "--session",
@@ -234,17 +288,8 @@ def start_session(session: str, host: str, requested_port: int) -> int:
                 break
             time.sleep(POLL_INTERVAL_SECONDS)
         maybe_terminate(process.pid)
-        remove_runtime(session)
 
-    print_json(
-        {
-            "status": "error",
-            "session": session,
-            "agent": AGENT_KIND,
-            "project_root": PROJECT_ROOT,
-            "message": "failed to start debug log server",
-        }
-    )
+    print_json(start_error_payload(session, host, ports_to_try))
     return 1
 
 
@@ -276,11 +321,7 @@ def show_session(session: str) -> int:
 
 def cleanup_session(session: str) -> int:
     state = load_state(session)
-    pid = state.get("pid")
-    if isinstance(pid, int):
-        maybe_terminate(pid)
-    elif isinstance(pid, str) and pid.isdigit():
-        maybe_terminate(int(pid))
+    maybe_terminate(parse_pid(state.get("pid")))
     remove_runtime(session)
     print_json(
         {
@@ -429,38 +470,42 @@ class DebugHTTPServer(ThreadingHTTPServer):
 
 
 def serve(session: str, host: str, port: int) -> int:
-    server = DebugHTTPServer(host, port, session)
-    clear_log(server.log_file)
-
-    def handle_stop(signum: int, frame: Any) -> None:
-        raise SystemExit(0)
-
-    signal.signal(signal.SIGTERM, handle_stop)
-    signal.signal(signal.SIGINT, handle_stop)
-
-    metadata = {
-        "status": "ready",
-        "agent": AGENT_KIND,
-        "project_root": PROJECT_ROOT,
-        "session": session,
-        "host": server.server_address[0],
-        "port": server.server_address[1],
-        "endpoint": f"http://{server.server_address[0]}:{server.server_address[1]}/log",
-        "clear_url": f"http://{server.server_address[0]}:{server.server_address[1]}/clear",
-        "session_url": f"http://{server.server_address[0]}:{server.server_address[1]}/session",
-        "health_url": f"http://{server.server_address[0]}:{server.server_address[1]}/health",
-        "log_file": str(server.log_file),
-        "server_log": str(server.server_log),
-        "state_dir": str(server.state_dir),
-        "pid": os.getpid(),
-    }
-    write_json(state_file_for(session), metadata)
-    pid_file_for(session).write_text(f"{os.getpid()}\n", encoding="utf-8")
-
+    server: DebugHTTPServer | None = None
     try:
+        server = DebugHTTPServer(host, port, session)
+        clear_log(server.log_file)
+
+        def handle_stop(signum: int, frame: Any) -> None:
+            raise SystemExit(0)
+
+        signal.signal(signal.SIGTERM, handle_stop)
+        signal.signal(signal.SIGINT, handle_stop)
+
+        metadata = {
+            "status": "ready",
+            "agent": AGENT_KIND,
+            "project_root": PROJECT_ROOT,
+            "session": session,
+            "host": server.server_address[0],
+            "port": server.server_address[1],
+            "endpoint": f"http://{server.server_address[0]}:{server.server_address[1]}/log",
+            "clear_url": f"http://{server.server_address[0]}:{server.server_address[1]}/clear",
+            "session_url": f"http://{server.server_address[0]}:{server.server_address[1]}/session",
+            "health_url": f"http://{server.server_address[0]}:{server.server_address[1]}/health",
+            "log_file": str(server.log_file),
+            "server_log": str(server.server_log),
+            "state_dir": str(server.state_dir),
+            "pid": os.getpid(),
+        }
+        write_json(state_file_for(session), metadata)
+        pid_file_for(session).write_text(f"{os.getpid()}\n", encoding="utf-8")
         server.serve_forever(poll_interval=0.2)
+    except Exception:
+        traceback.print_exc()
+        return 1
     finally:
-        server.server_close()
+        if server is not None:
+            server.server_close()
 
     return 0
 

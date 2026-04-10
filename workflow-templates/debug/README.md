@@ -103,6 +103,8 @@ Claude Code 版路径等价，只是把 `.codex` 替换为 `.claude`。
 - `log_file`：agent 需要读取的临时日志路径
 - `server_log`：服务自身 stdout/stderr 的落盘日志
 
+如果 `start` 失败，返回 JSON 还会保留 `state_dir` 和 `server_log_tail`，并且不会立刻删除 runtime，便于继续诊断绑定失败或环境限制问题。
+
 ## 浏览器接入示例
 
 最小可用示例：

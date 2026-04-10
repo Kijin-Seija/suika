@@ -70,7 +70,7 @@ agents_block() {
 该工作流适用于会落盘到仓库的制品任务：
 
 - Codex 负责流程调度和审查
-- writer 可选 Claude Code 或独立 Codex 子进程来负责开发、制品编写和修订
+- writer 可选 Claude Code，或由 Codex worker subagent 负责开发、制品编写和修订
 - 项目默认 writer: `__DEFAULT_WRITER__`；用户未显式指定时按此值执行
 - 支持代码实现，以及 OpenSpec proposal/design/spec/tasks 等制品任务
 - 默认最大审查轮次为 `5`
@@ -210,7 +210,7 @@ main() {
   echo "- 目标项目: ${target_project}"
   echo "- default writer: ${default_writer}"
   echo "- skill: .codex/skills/writer/SKILL.md"
-  echo "- launcher: .codex/skills/writer/bin/writer-run.sh"
+  echo "- cli launcher/helpers: .codex/skills/writer/bin/writer-run.sh"
   echo "- outputs: .codex/plans/"
 }
 

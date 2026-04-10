@@ -1,6 +1,6 @@
 # 实现闭环工作流
 
-这是一个可复用模板包，用于初始化“Codex 作为控制器和 reviewer，writer 可选 Claude Code CLI 或独立 Codex CLI 子进程负责实现、制品编写与修订”的闭环工作流。
+这是一个可复用模板包，用于初始化“Codex 作为控制器和 reviewer；writer 可以是 Claude Code CLI，或由 Codex worker subagent 负责实现、制品编写与修订”的闭环工作流。
 
 该工作流面向会落盘到仓库的制品任务：
 
@@ -31,6 +31,12 @@
 - 用 `--no-session-persistence` 发起无状态调用，减少历史会话噪音
 - 捕获 Claude stderr，并对上下文过大/瞬时失败做自动重试
 - 在重试时切换到更严格的上下文约束 prompt，要求 Claude 只读必要文件
+
+对于 `writer=codex`，推荐路径已经改成 Codex 原生 subagent 协作：
+
+- 当前主会话负责控制、review、收敛判断和落盘 `.codex/plans/<topic-slug>/` 产物
+- 通过 `worker` subagent 承担 draft / revision 的实现职责
+- 不再依赖 `codex exec` 子进程来跑 writer
 
 ## 目录结构
 
@@ -100,12 +106,20 @@ workflow-templates/writer/
 
 - 当前项目必须是 git 仓库
 - 启动时工作区必须是 clean working tree
-- `claude`、`codex`、`git`、`python3` 必须可用
+- `git`、`python3` 必须可用
+- 当 `writer=claude` 时，`claude`、`codex` 还必须可用
 - 当前目录应当是你信任的仓库，因为 Claude Code 会被允许直接修改工作区文件
+
+## 推荐执行方式
+
+安装后，优先通过 `writer skill` 触发：
+
+- 当 `writer=codex` 时，让当前 Codex 会话直接 `spawn_agent` 一个 `worker` subagent，并由主会话执行 review
+- 当 `writer=claude` 时，继续优先调用 launcher
 
 ## 手动执行 launcher
 
-安装后，Codex skill 应优先调用 launcher，而不是在对话中手工模拟循环：
+launcher 主要用于 `writer=claude` 的 CLI 路径：
 
 ```bash
 .codex/skills/writer/bin/writer-run.sh run \
@@ -118,9 +132,9 @@ workflow-templates/writer/
 `--writer` 支持：
 
 - `claude`：由 Claude Code CLI 负责实现与修订
-- `codex`：由独立的 `codex exec` 子进程负责实现与修订，当前控制器会话仍只负责调度和审查
+- `codex`：推荐由当前 Codex 会话通过 `worker` subagent 负责实现与修订；shell launcher 中的 `codex` 路径仅保留作兼容/回归用途，不再是首选方案
 
-如果未传 `--writer`，launcher 会优先读取 `.codex/skills/writer/config.env` 中的 `WRITER_DEFAULT_WRITER`；新安装默认写入 `claude`，也可以在安装时改成 `codex`。
+如果未传 `--writer`，skill 或 launcher 都会优先读取 `.codex/skills/writer/config.env` 中的 `WRITER_DEFAULT_WRITER`；新安装默认写入 `claude`，也可以在安装时改成 `codex`。
 
 `--artifact-type` 支持：
 

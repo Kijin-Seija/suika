@@ -72,6 +72,25 @@ run_runtime_smoke_test() {
   [[ ! -e "${log_file}" ]] || fail "cleanup should remove log file"
 }
 
+run_start_failure_smoke_test() {
+  local launcher="$1"
+  local failed_json
+  local server_log
+  local state_dir
+
+  failed_json="$(bash "${launcher}" start --session invalid-host --host 256.256.256.256 2>/dev/null || true)"
+  [[ "$(json_field "${failed_json}" status)" == "error" ]] || fail "invalid host should return error"
+  server_log="$(json_field "${failed_json}" server_log)"
+  state_dir="$(json_field "${failed_json}" state_dir)"
+  [[ -n "${server_log}" ]] || fail "failed start should return server_log"
+  [[ -n "${state_dir}" ]] || fail "failed start should return state_dir"
+  [[ -f "${server_log}" ]] || fail "failed start should preserve server_log"
+  grep -Eq "Traceback|gaierror|Name or service not known|nodename nor servname provided" "${server_log}" || fail "server_log should contain failure details"
+
+  bash "${launcher}" cleanup --session invalid-host >/dev/null
+  [[ ! -e "${state_dir}" ]] || fail "cleanup should remove failed runtime directory"
+}
+
 run_codex_install_test() {
   local target="${TMP_DIR}/codex-target"
   mkdir -p "${target}"
@@ -89,12 +108,13 @@ run_codex_install_test() {
 
   assert_contains "${target}/AGENTS.md" ".codex/skills/debug/SKILL.md"
   assert_contains "${target}/AGENTS.md" "同一个临时 log 文件"
-  assert_contains "${target}/.codex/skills/debug/SKILL.md" './bin/debug-session.sh start'
-  assert_contains "${target}/.codex/skills/debug/SKILL.md" './bin/debug-session.sh cleanup'
-  assert_contains "${target}/.codex/skills/debug/reference.md" 'POST /log'
+  assert_contains "${target}/.codex/skills/debug/SKILL.md" '.codex/skills/debug/bin/debug-session.sh start'
+  assert_contains "${target}/.codex/skills/debug/SKILL.md" '.codex/skills/debug/bin/debug-session.sh cleanup'
+  assert_contains "${target}/.codex/skills/debug/reference.md" '.codex/skills/debug/bin/debug-session.sh start'
   assert_contains "${target}/.codex/skills/debug/reference.md" '每次新的用户追加提问前'
 
   run_runtime_smoke_test "${target}/.codex/skills/debug/bin/debug-session.sh"
+  run_start_failure_smoke_test "${target}/.codex/skills/debug/bin/debug-session.sh"
 }
 
 run_claude_install_test() {
@@ -114,10 +134,12 @@ run_claude_install_test() {
 
   assert_contains "${target}/CLAUDE.md" ".claude/skills/debug/SKILL.md"
   assert_contains "${target}/CLAUDE.md" "同一个临时 log 文件"
-  assert_contains "${target}/.claude/skills/debug/SKILL.md" './bin/debug-session.sh reset'
+  assert_contains "${target}/.claude/skills/debug/SKILL.md" '.claude/skills/debug/bin/debug-session.sh reset'
+  assert_contains "${target}/.claude/skills/debug/reference.md" '.claude/skills/debug/bin/debug-session.sh start'
   assert_contains "${target}/.claude/skills/debug/reference.md" 'POST /clear'
 
   run_runtime_smoke_test "${target}/.claude/skills/debug/bin/debug-session.sh"
+  run_start_failure_smoke_test "${target}/.claude/skills/debug/bin/debug-session.sh"
 }
 
 run_root_default_install_test() {

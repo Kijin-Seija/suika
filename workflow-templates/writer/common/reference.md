@@ -7,8 +7,8 @@
 角色边界如下：
 
 - Codex：控制器 + reviewer
-- Writer CLI：实现者 + 修订者，可选 `claude` 或 `codex`
-- Launcher：协议执行器，负责命令调用、文件落盘、JSON 校验与收敛判断
+- Writer：实现者 + 修订者；`claude` 路径使用外部 CLI，`codex` 路径使用 Codex worker subagent
+- 控制器执行器：负责 prompt 调度、文件落盘、JSON 校验与收敛判断；可由 launcher 或当前 Codex 主会话承担
 
 ## 适用范围
 
@@ -68,7 +68,7 @@
 
 ## 控制器职责
 
-Launcher 作为控制器时，只允许执行以下机械工作：
+控制器执行器只允许执行以下机械工作：
 
 - 标准化输入
 - 生成和调用 prompt
@@ -212,16 +212,19 @@ Codex review 返回 JSON，schema 位于：
 ## 失败处理
 
 - 如果 `git` 或 `python3` 缺失，应立即停止
-- 如果选中的 writer 命令缺失，应立即停止
+- 如果选中的 writer 执行通道缺失，应立即停止
 - 如果工作区一开始不是 clean working tree，应立即停止
 - 如果 writer JSON 不合法，应停止并保留现场
 - 如果 writer 修订未覆盖上一轮全部 issue，应停止并保留现场
 - 如果 Codex JSON 不合法，应停止并保留现场
-- 如果 launcher 中途失败，不要自动回滚已生成的工作区修改
+- 如果 launcher、subagent 或控制器中途失败，不要自动回滚已生成的工作区修改
 
 ## Prompt 使用规则
 
-运行时应把完整 prompt 文本直接传给外部 CLI，而不是让外部 CLI 自己去拼接模板。
+运行时应把完整 prompt 文本直接传给 writer 执行通道，而不是让执行通道自己去拼接模板。
+
+- 当 `writer=claude` 时，把完整 prompt 传给外部 CLI
+- 当 `writer=codex` 时，把完整 prompt 传给 Codex worker subagent
 
 动态上下文至少应包含：
 
@@ -234,6 +237,12 @@ Codex review 返回 JSON，schema 位于：
 - 最新 review 路径
 - 最新 response 路径
 - 修订轮使用的最新 handoff 路径
+
+对于 Codex subagent writer，推荐额外满足：
+
+- 优先只传“完整渲染后的 prompt + 极少量阶段说明”
+- 不要假设 subagent 能看到当前控制器会话历史
+- 主会话负责 reviewer 工作，不要再起额外 `codex exec` reviewer 子进程
 
 对于 Claude writer，推荐额外满足：
 

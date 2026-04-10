@@ -55,7 +55,7 @@ run_codex_install_test() {
 
   assert_contains "${target}/AGENTS.md" ".codex/skills/writer/SKILL.md"
   assert_contains "${target}/AGENTS.md" ".codex/plans/<topic-slug>/"
-  assert_contains "${target}/AGENTS.md" "writer 可选 Claude Code 或独立 Codex 子进程"
+  assert_contains "${target}/AGENTS.md" "writer 可选 Claude Code，或由 Codex worker subagent 负责开发、制品编写和修订"
   assert_contains "${target}/AGENTS.md" '项目默认 writer: `claude`'
   assert_contains "${target}/AGENTS.md" "OpenSpec proposal/design/spec/tasks"
   assert_contains "${target}/.codex/skills/writer/SKILL.md" '默认 `5`'
