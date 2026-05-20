@@ -14,7 +14,7 @@
 
 {{LATEST_REVIEW}}
 
-- 最新 Claude 回应：
+- 最新主 agent 回应：
 
 {{LATEST_CLAUDE_RESPONSE}}
 
@@ -39,7 +39,7 @@
 1. <问题标题>
    - severity: <blocking | important>
    - codex-position: <引用或概述 Codex 当前立场>
-   - claude-position: <引用或概述 Claude 当前立场>
+   - agent-position: <引用或概述主 agent 当前立场>
    - why-still-unresolved: <为什么仍未收敛>
    - suggested-human-decision: <建议人类做出的判断>
 

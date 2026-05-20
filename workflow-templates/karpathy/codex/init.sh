@@ -6,8 +6,8 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_DIR="${SCRIPT_DIR}"
 COMMON_DIR="${SCRIPT_DIR}/../common"
 
-BEGIN_MARKER="<!-- BEGIN debug -->"
-END_MARKER="<!-- END debug -->"
+BEGIN_MARKER="<!-- BEGIN karpathy -->"
+END_MARKER="<!-- END karpathy -->"
 
 usage() {
   echo "用法: $0 <target-project>" >&2
@@ -35,25 +35,33 @@ remove_if_exists() {
 }
 
 agents_block() {
-  cat <<'BLOCK'
-<!-- BEGIN debug -->
-## Debug 工作流
+  cat <<'EOF'
+<!-- BEGIN karpathy -->
+## Karpathy 编码守则
 
-当用户显式要求使用 `debug skill`、`debug workflow` 或“启动本地日志服务器排查 bug”时，优先使用项目级 skill：
+在大多数非琐碎的编码、review、重构、排障等工程任务中，默认优先使用项目级 skill：
 
-- `.codex/skills/debug/SKILL.md`
+- `.codex/skills/karpathy/SKILL.md`
 
-不要默认对所有普通请求启用该流程；只有用户明确要求时才触发。
+以下场景可以不完整启用，按更轻量方式处理：
 
-该工作流会启动一个本地微型日志服务器，让浏览器通过 HTTP 接口把调试信息写入同一个临时 log 文件；agent 必须先读取本轮最新日志，并且只有在打印数据足以证明判断正确后才能开始修复，证据不足时先补日志，每次新一轮提问前先清空旧日志，问题修复确认后再清理日志文件与会话。
+- 纯闲聊或纯说明
+- 纯翻译
+- 纯信息查询
+- 显而易见的一行式机械改动
 
-相关资源位于：
+该 skill 用于在编码、review、重构、排障等工程任务中约束 Codex：
 
-- `.codex/skills/debug/bin/debug-session.sh`
-- `.codex/skills/debug/bin/debug_log_server.py`
-- `.codex/skills/debug/reference.md`
-<!-- END debug -->
-BLOCK
+- 先显式暴露关键假设和歧义
+- 优先最小实现，避免过度设计
+- 只做与需求直接相关的外科式修改
+- 把任务改写成可验证的成功标准
+
+补充参考位于：
+
+- `.codex/skills/karpathy/reference.md`
+<!-- END karpathy -->
+EOF
 }
 
 upsert_agents_block() {
@@ -113,7 +121,7 @@ upsert_agents_block() {
 clean_previous_install() {
   local target_project="$1"
 
-  remove_if_exists "${target_project}/.codex/skills/debug"
+  remove_if_exists "${target_project}/.codex/skills/karpathy"
 }
 
 main() {
@@ -129,23 +137,17 @@ main() {
 
   clean_previous_install "${target_project}"
 
-  mkdir -p \
-    "${target_project}/.codex/skills/debug/bin"
+  mkdir -p "${target_project}/.codex/skills/karpathy"
 
-  copy_file "${CODEX_DIR}/skill/SKILL.md" "${target_project}/.codex/skills/debug/SKILL.md"
-  copy_file "${COMMON_DIR}/reference.md" "${target_project}/.codex/skills/debug/reference.md"
-  copy_file "${COMMON_DIR}/bin/debug-session.sh" "${target_project}/.codex/skills/debug/bin/debug-session.sh"
-  copy_file "${COMMON_DIR}/bin/debug_log_server.py" "${target_project}/.codex/skills/debug/bin/debug_log_server.py"
-  chmod +x \
-    "${target_project}/.codex/skills/debug/bin/debug-session.sh" \
-    "${target_project}/.codex/skills/debug/bin/debug_log_server.py"
+  copy_file "${CODEX_DIR}/skill/SKILL.md" "${target_project}/.codex/skills/karpathy/SKILL.md"
+  copy_file "${COMMON_DIR}/reference.md" "${target_project}/.codex/skills/karpathy/reference.md"
 
   upsert_agents_block "${target_project}/AGENTS.md"
 
-  echo "已初始化 Codex 版 debug 工作流:"
+  echo "已初始化 Codex 版 karpathy skill:"
   echo "- 目标项目: ${target_project}"
-  echo "- skill: .codex/skills/debug/SKILL.md"
-  echo "- launcher: .codex/skills/debug/bin/debug-session.sh"
+  echo "- skill: .codex/skills/karpathy/SKILL.md"
+  echo "- reference: .codex/skills/karpathy/reference.md"
 }
 
 main "$@"

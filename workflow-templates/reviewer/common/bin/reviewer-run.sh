@@ -4,6 +4,8 @@ set -euo pipefail
 
 SELF_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 SKILL_DIR="$(cd "${SELF_DIR}/.." && pwd)"
+SKILL_CONTAINER_DIR="$(cd "${SKILL_DIR}/../.." && pwd)"
+PLANS_ROOT_NAME="$(basename "${SKILL_CONTAINER_DIR}")"
 PROMPTS_DIR="${SKILL_DIR}/prompts"
 SCHEMAS_DIR="${SKILL_DIR}/schemas"
 
@@ -492,7 +494,7 @@ main() {
   fi
 
   if [[ -z "${plans_dir}" ]]; then
-    plans_dir=".claude/plans/${topic}"
+    plans_dir="${PLANS_ROOT_NAME}/plans/${topic}"
   fi
 
   case "${subcommand}" in

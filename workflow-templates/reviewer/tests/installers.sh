@@ -4,6 +4,7 @@ set -euo pipefail
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
+CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
 CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
@@ -40,6 +41,49 @@ assert_not_contains() {
   fi
 }
 
+run_codex_install_test() {
+  local target="${TMP_DIR}/codex-target"
+  mkdir -p "${target}"
+
+  assert_file "${CODEX_INSTALLER}"
+  bash "${CODEX_INSTALLER}" "${target}"
+
+  assert_file "${target}/.codex/skills/reviewer/SKILL.md"
+  assert_file "${target}/.codex/skills/reviewer/reference.md"
+  assert_file "${target}/.codex/skills/reviewer/prompts/codex-review-request.md"
+  assert_file "${target}/.codex/skills/reviewer/prompts/codex-review-response.md"
+  assert_file "${target}/.codex/skills/reviewer/prompts/dispute-report.md"
+  assert_file "${target}/.codex/skills/reviewer/schemas/codex-review.schema.json"
+  assert_file "${target}/.codex/skills/reviewer/bin/reviewer-run.sh"
+  assert_file "${target}/AGENTS.md"
+  assert_executable "${target}/.codex/skills/reviewer/bin/reviewer-run.sh"
+
+  assert_contains "${target}/AGENTS.md" ".codex/skills/reviewer/SKILL.md"
+  assert_contains "${target}/AGENTS.md" ".codex/skills/reviewer/bin/reviewer-run.sh"
+  assert_contains "${target}/AGENTS.md" ".codex/skills/reviewer/schemas/codex-review.schema.json"
+  assert_contains "${target}/AGENTS.md" ".codex/plans/<topic-slug>/"
+  assert_contains "${target}/AGENTS.md" 'REVIEWER_CODEX_REVIEW_MODEL'
+  assert_contains "${target}/AGENTS.md" 'spawn_agent'
+  assert_contains "${target}/.codex/skills/reviewer/SKILL.md" '默认 `5`'
+  assert_contains "${target}/.codex/skills/reviewer/SKILL.md" '如果用户没有显式要求，不要默认启用。'
+  assert_contains "${target}/.codex/skills/reviewer/SKILL.md" '制品类型：`code` 或 `doc`'
+  assert_contains "${target}/.codex/skills/reviewer/SKILL.md" 'spawn_agent'
+  assert_contains "${target}/.codex/skills/reviewer/SKILL.md" 'reviewer subagent'
+  assert_contains "${target}/.codex/skills/reviewer/reference.md" 'codex-review.schema.json'
+  assert_contains "${target}/.codex/skills/reviewer/reference.md" 'reviewer subagent'
+  assert_contains "${target}/.codex/skills/reviewer/reference.md" '分歧报告'
+  assert_contains "${target}/.codex/skills/reviewer/bin/reviewer-run.sh" 'gpt-5.4'
+  assert_contains "${target}/.codex/skills/reviewer/bin/reviewer-run.sh" 'exec -C "${PWD}" -s read-only'
+  assert_contains "${target}/.codex/skills/reviewer/bin/reviewer-run.sh" 'PLANS_ROOT_NAME'
+  assert_not_contains "${target}/.codex/skills/reviewer/SKILL.md" ".cursor/"
+  assert_not_contains "${target}/.codex/skills/reviewer/reference.md" ".cursor/"
+  assert_not_contains "${target}/.codex/skills/reviewer/SKILL.md" ".claude/"
+  assert_not_contains "${target}/.codex/skills/reviewer/SKILL.md" '调用 `.codex/skills/reviewer/bin/reviewer-run.sh` 获取 review'
+  assert_contains "${ROOT_DIR}/README.md" '.codex/skills/reviewer/bin/reviewer-run.sh'
+  assert_contains "${ROOT_DIR}/README.md" 'REVIEWER_CODEX_REVIEW_MODEL'
+  assert_contains "${ROOT_DIR}/README.md" 'reviewer subagent'
+}
+
 run_claude_install_test() {
   local target="${TMP_DIR}/claude-target"
   mkdir -p "${target}"
@@ -71,7 +115,8 @@ run_claude_install_test() {
   assert_contains "${target}/.claude/skills/reviewer/reference.md" '真实的外部 `codex exec` 子进程'
   assert_contains "${target}/.claude/skills/reviewer/reference.md" '分歧报告'
   assert_contains "${target}/.claude/skills/reviewer/bin/reviewer-run.sh" 'gpt-5.4'
-  assert_contains "${target}/.claude/skills/reviewer/bin/reviewer-run.sh" 'codex exec -C "${PWD}" -s read-only'
+  assert_contains "${target}/.claude/skills/reviewer/bin/reviewer-run.sh" 'exec -C "${PWD}" -s read-only'
+  assert_contains "${target}/.claude/skills/reviewer/bin/reviewer-run.sh" 'PLANS_ROOT_NAME'
   assert_not_contains "${target}/.claude/skills/reviewer/SKILL.md" ".cursor/"
   assert_not_contains "${target}/.claude/skills/reviewer/reference.md" ".cursor/"
   assert_contains "${ROOT_DIR}/README.md" '.claude/skills/reviewer/bin/reviewer-run.sh'
@@ -85,7 +130,17 @@ run_root_default_install_test() {
   assert_file "${ROOT_INSTALLER}"
   bash "${ROOT_INSTALLER}" "${target}"
 
-  assert_file "${target}/.claude/skills/reviewer/SKILL.md"
+  assert_file "${target}/.codex/skills/reviewer/SKILL.md"
+}
+
+run_root_codex_install_test() {
+  local target="${TMP_DIR}/root-codex-target"
+  mkdir -p "${target}"
+
+  assert_file "${ROOT_INSTALLER}"
+  bash "${ROOT_INSTALLER}" --codex "${target}"
+
+  assert_file "${target}/.codex/skills/reviewer/SKILL.md"
 }
 
 run_root_claude_install_test() {
@@ -98,8 +153,10 @@ run_root_claude_install_test() {
   assert_file "${target}/.claude/skills/reviewer/SKILL.md"
 }
 
+run_codex_install_test
 run_claude_install_test
 run_root_default_install_test
+run_root_codex_install_test
 run_root_claude_install_test
 
-echo "PASS: reviewer root and claude installers"
+echo "PASS: reviewer root, codex, and claude installers"
