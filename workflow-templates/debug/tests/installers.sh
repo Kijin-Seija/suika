@@ -98,23 +98,33 @@ run_codex_install_test() {
   assert_file "${CODEX_INSTALLER}"
   bash "${CODEX_INSTALLER}" "${target}"
 
-  assert_file "${target}/.codex/skills/debug/SKILL.md"
-  assert_file "${target}/.codex/skills/debug/reference.md"
-  assert_file "${target}/.codex/skills/debug/bin/debug-session.sh"
-  assert_file "${target}/.codex/skills/debug/bin/debug_log_server.py"
+  assert_file "${target}/.codex/skills/debug-auto/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-steps/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-manual/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-steps/reference.md"
+  assert_file "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
+  assert_file "${target}/.codex/skills/debug-steps/bin/debug_log_server.py"
   assert_file "${target}/AGENTS.md"
-  assert_executable "${target}/.codex/skills/debug/bin/debug-session.sh"
-  assert_executable "${target}/.codex/skills/debug/bin/debug_log_server.py"
+  assert_executable "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
+  assert_executable "${target}/.codex/skills/debug-steps/bin/debug_log_server.py"
+  [[ ! -e "${target}/.codex/skills/debug/SKILL.md" ]] || fail "legacy debug skill should not be installed for codex"
 
-  assert_contains "${target}/AGENTS.md" ".codex/skills/debug/SKILL.md"
-  assert_contains "${target}/AGENTS.md" "同一个临时 log 文件"
-  assert_contains "${target}/.codex/skills/debug/SKILL.md" '.codex/skills/debug/bin/debug-session.sh start'
-  assert_contains "${target}/.codex/skills/debug/SKILL.md" '.codex/skills/debug/bin/debug-session.sh cleanup'
-  assert_contains "${target}/.codex/skills/debug/reference.md" '.codex/skills/debug/bin/debug-session.sh start'
-  assert_contains "${target}/.codex/skills/debug/reference.md" '每次新的用户追加提问前'
+  assert_contains "${target}/AGENTS.md" ".codex/skills/debug-auto/SKILL.md"
+  assert_contains "${target}/AGENTS.md" ".codex/skills/debug-steps/SKILL.md"
+  assert_contains "${target}/AGENTS.md" ".codex/skills/debug-manual/SKILL.md"
+  assert_contains "${target}/AGENTS.md" "Playwright 或等价浏览器自动化能力"
+  assert_contains "${target}/.codex/skills/debug-auto/SKILL.md" "Playwright 或等价浏览器自动化能力"
+  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" '.codex/skills/debug-steps/bin/debug-session.sh start'
+  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" '.codex/skills/debug-steps/bin/debug-session.sh cleanup'
+  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" "不要默认要求用户去控制台粘贴调试代码"
+  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" "先移除本轮加到项目里的临时调试代码"
+  assert_contains "${target}/.codex/skills/debug-manual/SKILL.md" "不启动本地日志服务器"
+  assert_contains "${target}/.codex/skills/debug-steps/reference.md" '.codex/skills/debug-steps/bin/debug-session.sh start'
+  assert_contains "${target}/.codex/skills/debug-steps/reference.md" '每次新的用户追加提问前'
+  assert_contains "${target}/.codex/skills/debug-steps/reference.md" "不要把“去控制台粘贴这段脚本”当成默认交互方式"
 
-  run_runtime_smoke_test "${target}/.codex/skills/debug/bin/debug-session.sh"
-  run_start_failure_smoke_test "${target}/.codex/skills/debug/bin/debug-session.sh"
+  run_runtime_smoke_test "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
+  run_start_failure_smoke_test "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
 }
 
 run_claude_install_test() {
@@ -149,7 +159,9 @@ run_root_default_install_test() {
   assert_file "${ROOT_INSTALLER}"
   bash "${ROOT_INSTALLER}" "${target}"
 
-  assert_file "${target}/.codex/skills/debug/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-auto/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-steps/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-manual/SKILL.md"
   assert_file "${target}/.claude/skills/debug/SKILL.md"
 }
 
@@ -159,7 +171,9 @@ run_root_codex_install_test() {
 
   bash "${ROOT_INSTALLER}" --codex "${target}"
 
-  assert_file "${target}/.codex/skills/debug/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-auto/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-steps/SKILL.md"
+  assert_file "${target}/.codex/skills/debug-manual/SKILL.md"
   [[ ! -e "${target}/.claude/skills/debug/SKILL.md" ]] || fail "root --codex should not create claude files"
 }
 

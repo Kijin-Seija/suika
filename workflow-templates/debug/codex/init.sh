@@ -39,19 +39,25 @@ agents_block() {
 <!-- BEGIN debug -->
 ## Debug 工作流
 
-当用户显式要求使用 `debug skill`、`debug workflow` 或“启动本地日志服务器排查 bug”时，优先使用项目级 skill：
+当用户显式要求以下任一调试模式时，优先使用对应的项目级 skill：
 
-- `.codex/skills/debug/SKILL.md`
+- `.codex/skills/debug-auto/SKILL.md`
+- `.codex/skills/debug-steps/SKILL.md`
+- `.codex/skills/debug-manual/SKILL.md`
 
 不要默认对所有普通请求启用该流程；只有用户明确要求时才触发。
 
-该工作流会启动一个本地微型日志服务器，让浏览器通过 HTTP 接口把调试信息写入同一个临时 log 文件；agent 必须先读取本轮最新日志，并且只有在打印数据足以证明判断正确后才能开始修复，证据不足时先补日志，每次新一轮提问前先清空旧日志，问题修复确认后再清理日志文件与会话。
+三种模式的职责分别是：
+
+- `debug auto`：agent 使用 Playwright 或等价浏览器自动化能力启动项目、自动操作页面、监听运行日志并分析问题
+- `debug steps`：用户手动操作并反馈，agent 启动本地日志服务器自动收集浏览器日志后分析
+- `debug manual`：不启动日志服务器；agent 在代码中添加临时 `console` 日志，用户复现后上传日志，再基于日志分析问题
 
 相关资源位于：
 
-- `.codex/skills/debug/bin/debug-session.sh`
-- `.codex/skills/debug/bin/debug_log_server.py`
-- `.codex/skills/debug/reference.md`
+- `.codex/skills/debug-steps/bin/debug-session.sh`
+- `.codex/skills/debug-steps/bin/debug_log_server.py`
+- `.codex/skills/debug-steps/reference.md`
 <!-- END debug -->
 BLOCK
 }
@@ -114,6 +120,9 @@ clean_previous_install() {
   local target_project="$1"
 
   remove_if_exists "${target_project}/.codex/skills/debug"
+  remove_if_exists "${target_project}/.codex/skills/debug-auto"
+  remove_if_exists "${target_project}/.codex/skills/debug-steps"
+  remove_if_exists "${target_project}/.codex/skills/debug-manual"
 }
 
 main() {
@@ -130,22 +139,29 @@ main() {
   clean_previous_install "${target_project}"
 
   mkdir -p \
-    "${target_project}/.codex/skills/debug/bin"
+    "${target_project}/.codex/skills/debug-auto" \
+    "${target_project}/.codex/skills/debug-steps/bin" \
+    "${target_project}/.codex/skills/debug-manual"
 
-  copy_file "${CODEX_DIR}/skill/SKILL.md" "${target_project}/.codex/skills/debug/SKILL.md"
-  copy_file "${COMMON_DIR}/reference.md" "${target_project}/.codex/skills/debug/reference.md"
-  copy_file "${COMMON_DIR}/bin/debug-session.sh" "${target_project}/.codex/skills/debug/bin/debug-session.sh"
-  copy_file "${COMMON_DIR}/bin/debug_log_server.py" "${target_project}/.codex/skills/debug/bin/debug_log_server.py"
+  copy_file "${CODEX_DIR}/skills/debug-auto/SKILL.md" "${target_project}/.codex/skills/debug-auto/SKILL.md"
+  copy_file "${CODEX_DIR}/skills/debug-steps/SKILL.md" "${target_project}/.codex/skills/debug-steps/SKILL.md"
+  copy_file "${CODEX_DIR}/skills/debug-manual/SKILL.md" "${target_project}/.codex/skills/debug-manual/SKILL.md"
+  copy_file "${CODEX_DIR}/reference-steps.md" "${target_project}/.codex/skills/debug-steps/reference.md"
+  copy_file "${COMMON_DIR}/bin/debug-session.sh" "${target_project}/.codex/skills/debug-steps/bin/debug-session.sh"
+  copy_file "${COMMON_DIR}/bin/debug_log_server.py" "${target_project}/.codex/skills/debug-steps/bin/debug_log_server.py"
   chmod +x \
-    "${target_project}/.codex/skills/debug/bin/debug-session.sh" \
-    "${target_project}/.codex/skills/debug/bin/debug_log_server.py"
+    "${target_project}/.codex/skills/debug-steps/bin/debug-session.sh" \
+    "${target_project}/.codex/skills/debug-steps/bin/debug_log_server.py"
 
   upsert_agents_block "${target_project}/AGENTS.md"
 
   echo "已初始化 Codex 版 debug 工作流:"
   echo "- 目标项目: ${target_project}"
-  echo "- skill: .codex/skills/debug/SKILL.md"
-  echo "- launcher: .codex/skills/debug/bin/debug-session.sh"
+  echo "- skills:"
+  echo "  - .codex/skills/debug-auto/SKILL.md"
+  echo "  - .codex/skills/debug-steps/SKILL.md"
+  echo "  - .codex/skills/debug-manual/SKILL.md"
+  echo "- launcher: .codex/skills/debug-steps/bin/debug-session.sh"
 }
 
 main "$@"

@@ -1,13 +1,51 @@
 # Debug 工作流
 
-这是一个可复用模板包，用于初始化“显式触发后由 agent 启动本地微型日志服务器，浏览器通过 HTTP 接口把调试信息写入同一个临时 log 文件，agent 先读取最新日志建立证据链，并且只有在打印数据已经证明判断成立后才开始修复，问题修复后再清理会话”的调试工作流。
+这是一个可复用模板包，用于初始化前端排障工作流。
+
+其中：
+
+- Codex 宿主会安装三个独立命令：`debug auto`、`debug steps`、`debug manual`
+- Claude Code 宿主仍保留单一的 `debug` 工作流
 
 该工作流同时支持：
 
 - Codex CLI 宿主
 - Claude Code 宿主
 
-## 工作流效果
+## Codex 三种模式
+
+### `debug auto`
+
+agent 使用 Playwright 或等价浏览器自动化能力：
+
+1. 启动或连接本地项目
+2. 自动操作页面复现问题
+3. 自动监听 `console` / `pageerror` / 网络失败
+4. 基于自动化运行证据分析并修复
+5. 自动回归验证
+
+### `debug steps`
+
+用户手动操作页面，agent 自动收集日志：
+
+1. 启动本地微型日志服务器
+2. agent 直接把临时调试上报代码加到项目里
+3. 浏览器通过 HTTP 接口把调试信息写入同一个临时 log 文件
+4. 每次新一轮复现前清空旧日志
+5. agent 先读取最新日志建立证据链
+6. 修复确认后移除临时调试代码并清理会话
+
+### `debug manual`
+
+不启动日志服务器，由 agent 在代码中加临时 `console` 打点：
+
+1. agent 先选择关键代码路径加日志
+2. 用户自己操作并收集输出
+3. 用户上传日志
+4. agent 基于日志分析问题，必要时继续补打点
+5. 修复后移除临时日志
+
+## `debug steps` / Claude `debug` 工作流效果
 
 触发后，agent 会遵循同一套会话约定：
 
@@ -35,8 +73,14 @@ workflow-templates/debug/
       debug_log_server.py
     reference.md
   codex/
-    skill/
-      SKILL.md
+    skills/
+      debug-auto/
+        SKILL.md
+      debug-steps/
+        SKILL.md
+      debug-manual/
+        SKILL.md
+    reference-steps.md
     init.sh
   claude/
     skill/
@@ -66,10 +110,18 @@ workflow-templates/debug/
 
 安装结果包括：
 
-- `.codex/skills/debug/` 或 `.claude/skills/debug/`
-- `bin/debug-session.sh`
-- `bin/debug_log_server.py`
-- `reference.md`
+- Codex:
+  - `.codex/skills/debug-auto/SKILL.md`
+  - `.codex/skills/debug-steps/SKILL.md`
+  - `.codex/skills/debug-manual/SKILL.md`
+  - `.codex/skills/debug-steps/bin/debug-session.sh`
+  - `.codex/skills/debug-steps/bin/debug_log_server.py`
+  - `.codex/skills/debug-steps/reference.md`
+- Claude Code:
+  - `.claude/skills/debug/SKILL.md`
+  - `.claude/skills/debug/bin/debug-session.sh`
+  - `.claude/skills/debug/bin/debug_log_server.py`
+  - `.claude/skills/debug/reference.md`
 - `AGENTS.md` / `CLAUDE.md` 中的显式触发入口区块
 
 ## 触发方式
@@ -77,26 +129,28 @@ workflow-templates/debug/
 该工作流只在用户显式要求时启用，例如：
 
 ```text
-请使用 debug skill 排查这个前端 bug。
-请走 debug workflow，启动本地日志服务器帮我看问题。
-使用 debug 工作流，把浏览器里的调试信息写到临时日志里再分析。
+请使用 debug auto 排查这个前端 bug。
+请走 debug steps，我来手动复现，你收集日志分析。
+请使用 debug manual，你先加 console 日志，我操作后把日志发你。
 ```
 
 如果用户没有明确要求，不要默认启用。
 
 ## 手动执行 launcher
 
+只有 `debug steps` 和 Claude 的单一 `debug` workflow 需要 launcher。Codex 的 `debug auto` 与 `debug manual` 不依赖这个本地日志服务器。
+
 安装后，agent 应优先使用 launcher 管理会话，而不是手工拼装临时服务器命令：
 
 ```bash
-.codex/skills/debug/bin/debug-session.sh start
-.codex/skills/debug/bin/debug-session.sh status
-.codex/skills/debug/bin/debug-session.sh reset
-.codex/skills/debug/bin/debug-session.sh show
-.codex/skills/debug/bin/debug-session.sh cleanup
+.codex/skills/debug-steps/bin/debug-session.sh start
+.codex/skills/debug-steps/bin/debug-session.sh status
+.codex/skills/debug-steps/bin/debug-session.sh reset
+.codex/skills/debug-steps/bin/debug-session.sh show
+.codex/skills/debug-steps/bin/debug-session.sh cleanup
 ```
 
-Claude Code 版路径等价，只是把 `.codex` 替换为 `.claude`。
+Claude Code 版路径等价，只是把 `.codex/skills/debug-steps` 替换为 `.claude/skills/debug`。
 
 `start` 会返回 JSON，包括：
 
@@ -107,16 +161,18 @@ Claude Code 版路径等价，只是把 `.codex` 替换为 `.claude`。
 
 如果 `start` 失败，返回 JSON 还会保留 `state_dir` 和 `server_log_tail`，并且不会立刻删除 runtime，便于继续诊断绑定失败或环境限制问题。
 
-## 推荐的排障约束
+## `debug steps` / Claude `debug` 推荐排障约束
 
 为了避免“服务启动了，但 agent 还是主要靠看代码猜”，建议把该 workflow 理解为一个强约束流程：
 
 1. 先启动会话
-2. 先拿到一份新的问题日志
-3. 先读取并总结日志证据
-4. 先确认这些打印数据已经足以证明当前判断
-5. 再根据证据去看代码与修复
-6. 如果证据不足，先补日志，不直接下结论，也不提前修复
+2. 先把最小必要的临时调试上报代码直接加到项目里
+3. 先拿到一份新的问题日志
+4. 先读取并总结日志证据
+5. 先确认这些打印数据已经足以证明当前判断
+6. 再根据证据去看代码与修复
+7. 用户确认修复后移除临时调试代码并清理会话
+8. 如果证据不足，先补日志，不直接下结论，也不提前修复
 
 也就是说，代码阅读可以很重要，但它应该发生在“已经有日志线索之后”。
 
