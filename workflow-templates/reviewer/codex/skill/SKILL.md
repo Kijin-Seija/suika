@@ -1,229 +1,136 @@
 ---
 name: reviewer
-description: 当用户显式要求使用 reviewer skill 时使用。当前 Codex 会话先完成主任务，再通过只读 reviewer subagent 做结构化 review，并按 review 结果自动迭代修订，直到通过或达到轮次上限。
+description: 当用户显式要求使用 reviewer skill、reviewer 工作流、让 Codex 审查任务结果或执行持续审查循环时使用。先完成主任务，再执行上下文隔离的独立盲审；只有当前状态下已实际复现、可由主 agent 独立复验且与任务相关的缺陷才能阻塞交付。未来风险、静态猜测和“可能导致”类 finding 进入 backlog。一次独立盲审没有交付阻塞问题后稳定收敛；goal 模式全局最多 20 轮。
 ---
 
 # Reviewer 工作流
 
-## 概览
+## 核心规则
 
-只在用户显式要求使用这套流程时启用。
+执行两层循环：
 
-这套工作流包含两个角色和一个控制器：
+- 外层 `blind audit round`：使用 `spawn_agent(..., fork_turns="none")` 启动全新只读 reviewer subagent。
+- 内层 `inner iteration`：盲审发现交付阻塞问题后，由主 agent 修复；继续使用同一个 reviewer 复查、裁决异议并发现新问题。
 
-- 当前 Codex 会话负责完成主任务，并根据 review 结果修订代码或文档
-- 当前 Codex 会话必须 `spawn_agent` 一个只读 reviewer subagent 负责 review 当前制品，并返回结构化 JSON
-- 控制器负责流程调度、文件落盘、协议校验、收敛判断和停止条件
+只有主 agent 可以修改代码或文档。reviewer 始终只读。不要通过 shell 运行 `codex exec` 代替原生 subagent；launcher 只用于兼容和回归测试。
 
-不要默认对所有普通请求启用该流程。
+只把同时满足以下条件的 finding 视为交付阻塞问题：
 
-对于 Codex 宿主，不要再通过 shell 去跑 `codex exec` 来充当 reviewer；主路径必须是 Codex 原生 subagent 协作。安装目录中的 `.codex/skills/reviewer/bin/reviewer-run.sh` 仅保留给 Claude 兼容场景、回归测试或人工排障参考，不是本 skill 的首选执行方式。
+- severity 为 `blocking` 或 `important`
+- origin 为 `change_introduced` 或 `task_related`
+- blocking 的 confidence 为 `high|medium`；important 必须为 `high`
+- code 使用 `failing_check|runtime_reproduction|safe_poc`；doc 可使用 `document_observation`
+- 当前代码、配置和支持范围内可达，并提供 `observed=true` 的完整 reproduction
+- 不处理会使原始任务交付不正确、不完整或产生实质回归
 
-## 触发条件
+`task_related` 只有直接违反原始任务明确要求或验收标准时才能阻塞。依赖未来代码/配置/调用方/流量、只有静态代码路径推断、无法实际复现或使用“可能、也许、may、might、could cause”等不确定结论的 finding 必须进入 backlog。只读 sandbox 或缓存权限导致的测试失败不算产品 bug。
 
-只有当用户明确提出以下意图时才应用本 skill：
+将 `minor`、`pre_existing`、`out_of_scope`、低置信度推测、纯优化和风格偏好写入 `review-backlog.json`，不要触发修复循环。相关测试、lint、typecheck 等确定性检查必须通过；真实失败属于有证据的交付阻塞问题。
 
-- `使用 reviewer skill`
-- `使用 reviewer 工作流`
-- `让 Codex 审查这次任务结果`
-- `做完后交给 Codex review`
-- `请走 reviewer 审查循环`
+## 初始化
 
-如果用户没有显式要求，不要默认启用。
+收集或推断原始任务、`code|doc` 制品类型、lowercase kebab-case topic slug 和最大独立盲审次数。普通会话默认 `5`；存在未完成 goal 时使用 `20 (goal-mode)`。
 
-## 必要输入
+在 `.codex/plans/<topic-slug>/` 创建并持久化：
 
-开始前需要收集或推断以下输入：
+- `brief.md`：原始任务、制品类型、固定 git baseline、最大盲审次数和执行模式
+- `consensus-exclusions.json`：初始为 `{"exclusions":[]}`
+- `review-backlog.json`：初始为 `{"items":[]}`
+- `workflow-state.json`：符合 `schemas/workflow-state.schema.json`，包含连续合格盲审计数
 
-- 用户任务陈述
-- 制品类型：`code` 或 `doc`
-- 输出 topic slug，使用 lowercase kebab-case
-- 最大 review 轮次，默认 `5`
+code 模式只记录一次任务开始前的 `git rev-parse HEAD`，后续不得重算 baseline。
 
-推断规则：
+## 完成主任务
 
-- 如果任务涉及实现功能、修复 bug、修改代码，则制品类型应为 `code`
-- 如果任务涉及计划、分析、方案、说明文档，则制品类型应为 `doc`
-- 如果用户没有提供 topic slug，应根据任务语义推导一个简短的 kebab-case 名称
+先完成用户任务并运行与风险相称的确定性检查。检查失败时先修复，不要带着已知失败进入“通过”状态。
 
-## 前提检查
+采集当前制品：
 
-开始前必须检查：
+- code：固定 baseline 到真实工作区的完整 diff，排除 `.codex/plans/` 与 `.claude/plans/`
+- doc：当前完整文档和原始目标约束
 
-- 当前目录是 git 仓库
-- `git`、`python3` 可用
-- 当前环境必须支持 Codex subagent / agent delegation 工具
+保存为 `artifact-rN.md`。
 
-如果这些前提不成立，不要自己改回 `codex exec` shell reviewer；应明确告诉用户当前 blocker。
+## 独立盲审
 
-## 运行目录布局
+对每个外层轮次 `N`：
 
-工作流产物保存在：
+1. 使用 `prompts/codex-blind-review-request.md` 渲染 prompt。
+2. 只传入原始任务、制品类型、固定 baseline、当前制品、active `consensus-exclusions.json` 和 `review-backlog.json`。
+3. 不传入 topic、历史 review、主 agent 回应、当前轮次、最大轮次、争议记录或 plans 路径。
+4. 使用 `spawn_agent(..., fork_turns="none")` 创建全新 reviewer，并要求其忽略工作流目录、只读检查真实工作区。
+5. 保存原样 JSON 到 `blind-review-rN.md`，按 `schemas/codex-review.schema.json` 校验。
+6. 合法处理 `reopens_consensus_id` 与 `related_backlog_id`，机械更新共识账本和非阻塞 backlog。
 
-- `.codex/plans/<topic-slug>/brief.md`
-- `.codex/plans/<topic-slug>/draft-r1.md`
-- `.codex/plans/<topic-slug>/review-r1.md`
-- `.codex/plans/<topic-slug>/response-r2.md`
-- `.codex/plans/<topic-slug>/revision-r2.md`
-- `.codex/plans/<topic-slug>/review-r2.md`
-- `.codex/plans/<topic-slug>/response-r3.md`
-- `.codex/plans/<topic-slug>/revision-r3.md`
-- `.codex/plans/<topic-slug>/review-r3.md`
-- `.codex/plans/<topic-slug>/final.md`
-- `.codex/plans/<topic-slug>/dispute-report.md`
+按结果处理：
 
-只创建本次实际运行所需的文件。
+- 没有 `delivery_blocking: true`：这是一次 qualifying blind audit。即使包含非阻塞 finding，也不得进入修复循环。
+- 存在 delivery blocker 且 `next_action=revise`：将连续合格计数重置为 0，进入内层收敛。
+- `next_action=human_judgment`：重置连续计数，生成 `dispute-report.md` 并停止。
 
-## 控制器职责
+不要要求“零 finding”。只有 delivery blocker 影响交付判定。
 
-控制器就是当前会话中的父 agent。控制器必须：
+## 内层主 agent 修复与 reviewer 复查
 
-- 收集并标准化输入
-- 创建 topic 目录和 `brief.md`
-- 先完成用户主任务
-- 将当前结果标准化写入 `draft-r1.md` 或 `revision-rN.md`
-- 根据当前轮次渲染 reviewer prompt
-- 优先 `spawn_agent` 一个新的 reviewer subagent 获取 review
-- 将 reviewer 原样返回保存为 `review-rN.md`
-- 对 reviewer JSON 结果做协议校验
-- 在 review 未通过时，根据 findings 执行修订
-- 在每一轮 review 后执行收敛检查
-- 在达到轮次上限时停止并生成 `dispute-report.md`
+保持当前 reviewer 存活，不得在同一外层轮次创建新 reviewer。
 
-不要把是否继续下一轮的决定权交给 reviewer。循环控制只属于控制器。
+对每个内层迭代 `M`：
 
-控制器只允许执行协议层和机械层操作，不得参与 reviewer 结论本身：
+1. 只逐项分析最新 review 中 `delivery_blocking: true` 的 issue。
+2. 修改前先执行 reviewer 的 reproduction；记录 `verification-result` 和实际命令/结果。
+3. 只有 `reproduced|independently_verified` 才能 accepted 并修复；`not_reproduced` 时不得修改，必须 questioned/rejected。
+4. 保存 `response-rN-iM.md` 和最新 `revision-rN-iM.md`。
+5. 使用 `prompts/codex-review-request.md` 渲染 follow-up prompt，并通过 `followup_task` 发给同一个 reviewer。
+6. reviewer 对 not_reproduced 项必须提供修正后的可执行复现；无法提供时撤回为 backlog。
+7. reviewer 明确同意 questioned/rejected 项不成立或无需处理时，才允许写入 `new_consensus_exclusions`。
+8. 保存 `review-rN-iM.md`，校验并机械合并共识和 backlog。
 
-- 可以做：prompt 渲染、流程调度、文件保存、JSON 校验、`git diff` 捕获、停止或重试流程
-- 不可以做：伪造 reviewer finding、合并或降级问题后再转述、在 reviewer JSON 缺字段时脑补默认值
-- 如果角色输出不合规，控制器只能要求同一角色重试，或停止流程；不能自己补正文
+`fail + revise` 时继续内层迭代。`pass + approve` 表示当前外层轮次完成；issues 可以包含非阻塞 finding。因为该轮盲审入口曾发现 blocker，本轮不得增加连续 qualifying 计数。终止该 reviewer，再启动下一次全新盲审。
 
-## reviewer subagent 规则
+主 agent 不得无条件接受 reviewer 意见，也不得自行降级或丢弃 finding；必须逐项依据证据修复或提出异议。
 
-Codex 宿主下的 reviewer 必须满足：
+## 收敛与最大轮次
 
-- 优先 `spawn_agent` 一个新的 reviewer subagent；不要让当前控制器会话自己兼任 reviewer
-- 优先使用 `default` 子代理类型；不要使用会修改文件的 `worker`
-- `fork_context` 不是必需；不要假设 subagent 能看到当前对话历史，必要上下文必须通过完整渲染后的 prompt 显式传入
-- subagent 只负责读取当前工作区并返回严格 JSON，不得修改工作区文件，不得代替控制器修正文档或代码
-- 每轮 review 优先新建一个新的 reviewer subagent，避免上一轮上下文污染当前结论
+维护 `consecutive_qualifying_blind_audits` 作为 0/1 状态：
 
-## 执行协议
+- 全新盲审入口没有 delivery blocker：设为 1 并立即稳定收敛
+- 全新盲审发现 delivery blocker：立即重置为 0
+- 经内层修复后通过：该轮完成，但计数保持 0
 
-### 1. 初始化
+一次 qualifying blind audit 后，以 `stable-convergence` 完成。普通模式达到最大独立盲审次数时，以 `max-blind-audits-completed` 完成。goal 模式全局最多 20 次独立盲审；第 20 轮的内层 blocker 处理完成且确定性检查通过后，以 `review-budget-completed` 结束，不要求零 finding。
 
-1. 把用户请求标准化写入 `brief.md`。
-2. 在 `brief.md` 中记录：
-   - topic slug
-   - 制品类型：`code` 或 `doc`
-   - 最大 review 轮次
-   - 标准化后的任务描述
-   - execution mode：`explicit-reviewer-skill`
-3. 如果制品类型为 `code`，还应记录 `git rev-parse HEAD` 的输出作为 baseline。
+## 主会话 rollover
 
-### 2. 完成主任务
+每个主会话最多完成 10 次外层盲审。仍需继续时：
 
-4. 当前 Codex 会话先完成用户主任务。
-5. 主任务完成后，控制器将当前结果标准化写入 `draft-r1.md`：
-   - `code` 模式：保存变更概述、变更文件列表和 `git diff`
-   - `doc` 模式：保存文档正文，必要时附带任务目标与约束
+1. 将 state 设为 `handoff_required`，覆盖写入 `session-handoff.md`。
+2. 清理刚完成轮次的临时文件。
+3. 在同一 local checkout 创建无历史的新 task；不要 fork，不要创建 worktree。
+4. 新 task 只接收 topic 和 plans 路径，并读取 `brief.md`、`workflow-state.json`、`consensus-exclusions.json`、`review-backlog.json`、`session-handoff.md`。
+5. resume 后从 `next_blind_audit` 继续，不重新推断 max/goal-mode。
 
-### 3. 首轮 reviewer 审查
+无法创建新 task 时保留 checkpoint 并停止，要求用户在同一 checkout 手动开启新 task。不得在旧会话突破 10 轮。
 
-6. 渲染 `./prompts/codex-review-request.md`，传入：
-   - `{{USER_TASK}}`
-   - `{{ARTIFACT_TYPE}}`
-   - `{{TOPIC_SLUG}}`
-   - `{{ROUND}} = 1`
-   - `{{MAX_ROUNDS}}`
-   - `{{CURRENT_ARTIFACT}} = draft-r1.md` 的正文
-   - `{{LATEST_REVIEW}} = none`
-   - `{{LATEST_CLAUDE_RESPONSE}} = none`
-7. 控制器必须 `spawn_agent` 一个新的 reviewer subagent，把完整渲染后的 prompt 发送给它，而不是调用 `.codex/skills/reviewer/bin/reviewer-run.sh review ...`。
-8. reviewer subagent 必须在当前工作区里完成只读审查，直接读取最新文件和未提交改动，并返回严格 JSON。
-9. 将 reviewer 原样返回保存为 `review-r1.md`。
-10. 校验返回是否为符合契约的 JSON：
-   - 必须包含 `status`、`summary`、`issues`、`next_action`
-   - `severity` 只能是 `blocking | important | minor`
-   - `status = fail` 时，问题列表必须存在且结构完整
-11. 若协议不合法，只能要求 reviewer subagent 重试该轮，不能由控制器补齐。
+## 清理与保留
 
-### 4. 收敛或修订
+每个已完成外层轮次只清理：
 
-12. 如果 `review-r1.md` 已返回通过结果，则写入 `final.md` 并停止。
-13. 否则，读取并遵循 `./prompts/codex-review-response.md`，逐条处理 `review-r1.md` 中的问题：
-   - 属实则修改，并标记 `accepted`
-   - 存疑则提出问题，并标记 `questioned`
-   - 不成立则说明理由，并标记 `rejected`
-14. 将逐条回应保存为 `response-r2.md`。
-15. 重新采集最新结果并保存为 `revision-r2.md`。
+- `artifact-rN.md`
+- `blind-review-rN.md`
+- `response-rN-iM.md`
+- `revision-rN-iM.md`
+- `review-rN-iM.md`
 
-### 5. 后续轮次
+始终保留 `brief.md`、`consensus-exclusions.json`、`review-backlog.json`、`workflow-state.json`、必要的 handoff/final/dispute 文件。未通过、需人工裁决、协议失败或中断时不得清理当前轮次。
 
-16. 每一轮都重新 `spawn_agent` 一个新的 reviewer subagent review `revision-rN.md`，并同时附带：
-   - 上一轮 `review-r(N-1).md`
-   - 当前轮 `response-rN.md`
-17. 将 reviewer 返回保存为 `review-rN.md`。
-18. 如果通过，则写入 `final.md` 并停止。
-19. 如果未通过且仍未达到最大轮次，则重复修订 -> review。
-20. 如果达到最大轮次仍未通过，则停止循环，并生成 `dispute-report.md`。
+## 协议校验
 
-## Code 模式要求
+严格使用 `schemas/codex-review.schema.json`：
 
-当制品类型为 `code` 时：
+- pass 不得包含 delivery blocker，`next_action=approve`；允许非阻塞 issues
+- fail 必须至少包含一个 delivery blocker，`next_action=revise|human_judgment`
+- code blocker 必须是当前状态已观察到的 failing check、runtime reproduction 或 safe PoC；doc 可使用当前文本的 document observation
+- 每个 issue 必须包含 `evidence_kind`、`current_state_reachable` 和结构化 `reproduction`
+- 主 agent response 只覆盖 delivery blocker，并包含 `verification-result` 与 `verification-evidence`
 
-- 项目必须是 git 仓库
-- `brief.md` 应记录 git baseline
-- 如果某一轮新增了未跟踪文件，应确保它们能被后续 diff 捕获
-- 提交给 reviewer 的上下文应以原始 `git diff`、文件路径列表和必要原始片段为主
-- reviewer subagent 必须在当前项目工作区中运行，直接查看主 agent 已产生但尚未提交的改动
-- 不得为 reviewer subagent 创建或切换到独立 worktree、临时 checkout、镜像目录或其他看不到当前改动的隔离环境
-- 不要只把控制器自己的语义摘要交给 reviewer
-
-## Doc 模式要求
-
-当制品类型为 `doc` 时：
-
-- `draft-r1.md` / `revision-rN.md` / `final.md` 保存文档正文
-- 可以附带任务目标、约束、验收标准
-- 如果因长度限制只能摘录，必须保留足够的原文线索，避免控制器改写语义
-
-## 收敛规则
-
-以下条件在 code 和 doc 模式下都适用：
-
-- 最新 reviewer `status` 为 `pass`
-- 最新 reviewer `next_action` 为 `approve`
-- 没有未解决的 `blocking` 和 `important` 问题
-- 如果不是首轮直接通过，则当前会话必须对上一轮问题做出逐条回应
-
-`minor` 问题不单独阻止通过，但如果 reviewer 仍明确返回 `fail`，则流程不得自判收敛。
-
-## 轮次上限
-
-默认最大 review 轮次为 `5`，除非用户另行指定。
-
-轮次按 reviewer 文件计数：`review-r1.md`、`review-r2.md`、`review-r3.md` ...
-
-如果达到轮次上限仍未收敛：
-
-- 立即停止循环
-- 使用 `./prompts/dispute-report.md` 生成 `dispute-report.md`
-- 总结仍未解决的问题、双方理由和需要用户做出的决策
-
-## 失败处理
-
-- 如果 reviewer 返回无法解析或不符合契约的 JSON，控制器只能要求 reviewer 重试该轮
-- 如果当前会话没有逐条回应 findings，控制器只能要求重试该轮
-- 如果声称已修复，但最新制品没有体现，控制器不得伪造完成状态
-- 多次重试仍不满足契约时，应停止流程并保留已有文件供人工接管
-
-## 补充说明
-
-请阅读 `reference.md` 获取：
-
-- JSON 契约
-- 文件命名规则
-- 制品结构
-- 严重级别定义
-- 收敛与争议升级规则
+详细契约、backlog 合并和文件布局见 `reference.md`。
