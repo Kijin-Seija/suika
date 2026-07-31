@@ -18,7 +18,7 @@
 - `blind audit round`：每启动一个全新上下文隔离 reviewer 才加一。
 - `inner iteration`：主 agent 修复当前轮 delivery blocker，同一个 reviewer 复查。内层迭代不消耗 blind audit 次数。
 
-Codex 宿主使用原生 reviewer subagent；Claude 宿主使用外部 Codex reviewer 进程。两者共享相同 JSON、状态和收敛语义。
+Codex 宿主优先使用原生 reviewer subagent。兼容 launcher 仅用于回归测试或无法使用原生 subagent 的受限环境。
 
 标准流程：
 
@@ -85,7 +85,7 @@ blocker 的核心 description/evidence 不得使用“可能、也许、或许�
 
 不得提供历史 review、主 agent 回应、当前轮次、最大轮次、topic、争议记录或旧聊天历史。盲审 prompt 不得泄露这些控制字段。
 
-reviewer 必须忽略 `.codex/plans/`、`.claude/plans/` 和其他工作流产物。允许读取调用方、测试和配置，但只用于验证本次任务变更，不得扩张成无边界项目审计。
+reviewer 必须忽略 `.codex/plans/` 和其他工作流产物。允许读取调用方、测试和配置，但只用于验证本次任务变更，不得扩张成无边界项目审计。
 
 follow-up 不属于全新盲审，必须带当前轮次的最新 review、主 agent 回应、当前制品、共识账本和 backlog，并继续使用同一个 reviewer。
 

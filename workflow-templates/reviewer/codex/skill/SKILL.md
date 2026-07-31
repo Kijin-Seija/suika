@@ -46,7 +46,7 @@ code 模式只记录一次任务开始前的 `git rev-parse HEAD`，后续不得
 
 采集当前制品：
 
-- code：固定 baseline 到真实工作区的完整 diff，排除 `.codex/plans/` 与 `.claude/plans/`
+- code：固定 baseline 到真实工作区的完整 diff，排除 `.codex/plans/`
 - doc：当前完整文档和原始目标约束
 
 保存为 `artifact-rN.md`。

@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
-CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
 FAKE_CODEX="${TMP_DIR}/fake-codex.sh"
@@ -274,29 +273,6 @@ run_codex_install_test() {
   assert_not_contains "${target}/.codex/skills/reviewer/SKILL.md" '.cursor/'
 }
 
-run_claude_install_test() {
-  local target="${TMP_DIR}/claude-target"
-  mkdir -p "${target}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
-
-  assert_file "${target}/.claude/skills/reviewer/SKILL.md"
-  assert_file "${target}/.claude/skills/reviewer/reference.md"
-  assert_file "${target}/.claude/skills/reviewer/prompts/codex-review-request.md"
-  assert_file "${target}/.claude/skills/reviewer/schemas/codex-review.schema.json"
-  assert_file "${target}/.claude/skills/reviewer/schemas/consensus-exclusions.schema.json"
-  assert_file "${target}/.claude/skills/reviewer/schemas/review-backlog.schema.json"
-  assert_file "${target}/.claude/skills/reviewer/schemas/workflow-state.schema.json"
-  assert_executable "${target}/.claude/skills/reviewer/bin/reviewer-run.sh"
-  assert_contains "${target}/CLAUDE.md" 'review-backlog.json'
-  assert_contains "${target}/CLAUDE.md" '一次独立盲审'
-  assert_contains "${target}/.claude/skills/reviewer/SKILL.md" '只有 Claude 可以修改代码或文档'
-  assert_contains "${target}/.claude/skills/reviewer/SKILL.md" 'stable-convergence'
-  assert_contains "${target}/.claude/skills/reviewer/prompts/claude-review-response.md" 'verification-result'
-  assert_contains "${target}/.claude/skills/reviewer/schemas/codex-review.schema.json" 'runtime_reproduction'
-  assert_contains "${target}/.claude/skills/reviewer/bin/reviewer-run.sh" 'exec -C "${PWD}" -s read-only'
-  assert_not_contains "${target}/.claude/skills/reviewer/SKILL.md" '.cursor/'
-}
-
 run_root_install_tests() {
   local target
 
@@ -309,21 +285,16 @@ run_root_install_tests() {
   mkdir -p "${target}"
   bash "${ROOT_INSTALLER}" --codex "${target}"
   assert_file "${target}/.codex/skills/reviewer/SKILL.md"
-
-  target="${TMP_DIR}/root-claude-target"
-  mkdir -p "${target}"
-  bash "${ROOT_INSTALLER}" --claude "${target}"
-  assert_file "${target}/.claude/skills/reviewer/SKILL.md"
 }
 
 run_convergence_flow_test() {
   local target="${TMP_DIR}/convergence-target"
-  local plans_dir=".claude/plans/convergence-test"
+  local plans_dir=".codex/plans/convergence-test"
   local prompt_log="${TMP_DIR}/convergence-prompt.log"
   local baseline
 
   init_git_target "${target}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
+  bash "${CODEX_INSTALLER}" "${target}"
   (
     cd "${target}"
     baseline="$(git rev-parse HEAD)"
@@ -332,7 +303,7 @@ run_convergence_flow_test() {
 
     printf '# artifact 1\n' > "${plans_dir}/artifact-r1.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=blocker_with_minor \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "修复登录校验" --artifact-type code --topic convergence-test \
         --audit-round 1 --max-blind-audits '20 (goal-mode)' \
         --baseline "${baseline}" --artifact "${plans_dir}/artifact-r1.md"
@@ -346,7 +317,7 @@ run_convergence_flow_test() {
     printf '# response\n\n1. issue-1\n   - decision: accepted\n   - verification-result: not_reproduced\n   - verification-evidence: rerun did not show the reported failure\n   - action: fixed anyway\n   - rationale: invalid acceptance\n   - open-question: none\n' > "${plans_dir}/response-invalid.md"
     printf '# invalid revision\n' > "${plans_dir}/revision-invalid.md"
     if REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=pass \
-      .claude/skills/reviewer/bin/reviewer-run.sh followup \
+      .codex/skills/reviewer/bin/reviewer-run.sh followup \
         --task "修复登录校验" --artifact-type code --topic convergence-test \
         --audit-round 1 --inner-iteration 99 --max-blind-audits '20 (goal-mode)' \
         --baseline "${baseline}" --artifact "${plans_dir}/revision-invalid.md" \
@@ -357,7 +328,7 @@ run_convergence_flow_test() {
     printf '# response\n\n1. issue-1\n   - decision: accepted\n   - verification-result: reproduced\n   - verification-evidence: test command returned changed instead of base\n   - action: fixed\n   - rationale: valid\n   - open-question: none\n' > "${plans_dir}/response-r1-i1.md"
     printf '# revision 1\n' > "${plans_dir}/revision-r1-i1.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=pass \
-      .claude/skills/reviewer/bin/reviewer-run.sh followup \
+      .codex/skills/reviewer/bin/reviewer-run.sh followup \
         --task "修复登录校验" --artifact-type code --topic convergence-test \
         --audit-round 1 --inner-iteration 1 --max-blind-audits '20 (goal-mode)' \
         --baseline "${baseline}" --artifact "${plans_dir}/revision-r1-i1.md" \
@@ -371,7 +342,7 @@ run_convergence_flow_test() {
 
     printf '# artifact 2\n' > "${plans_dir}/artifact-r2.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=nonblocking_mix \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "修复登录校验" --artifact-type code --topic convergence-test \
         --audit-round 2 --max-blind-audits '20 (goal-mode)' \
         --baseline "${baseline}" --artifact "${plans_dir}/artifact-r2.md"
@@ -390,19 +361,19 @@ run_convergence_flow_test() {
 
 run_invalid_classification_test() {
   local target="${TMP_DIR}/invalid-target"
-  local plans_dir=".claude/plans/invalid-test"
+  local plans_dir=".codex/plans/invalid-test"
   local prompt_log="${TMP_DIR}/invalid-prompt.log"
   local baseline
 
   init_git_target "${target}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
+  bash "${CODEX_INSTALLER}" "${target}"
   (
     cd "${target}"
     baseline="$(git rev-parse HEAD)"
     mkdir -p "${plans_dir}"
     printf '# artifact\n' > "${plans_dir}/artifact-r1.md"
     if REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=invalid_low_blocking \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "分类校验" --artifact-type code --topic invalid-test \
         --audit-round 1 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r1.md"; then
@@ -411,21 +382,21 @@ run_invalid_classification_test() {
     assert_file "${plans_dir}/blind-review-r1.md"
     assert_not_exists "${plans_dir}/final.md"
     if REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=invalid_medium_important_blocking \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "分类校验" --artifact-type code --topic invalid-test \
         --audit-round 1 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r1.md"; then
       fail "medium-confidence important issue must not block delivery"
     fi
     if REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=invalid_future_blocking \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "分类校验" --artifact-type code --topic invalid-test \
         --audit-round 1 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r1.md"; then
       fail "future-only risk must not block delivery"
     fi
     if REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=invalid_uncertain_blocking \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "分类校验" --artifact-type code --topic invalid-test \
         --audit-round 1 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r1.md"; then
@@ -436,13 +407,13 @@ run_invalid_classification_test() {
 
 run_state_migration_test() {
   local target="${TMP_DIR}/migration-target"
-  local plans_dir=".claude/plans/migration-test"
-  local budget_dir=".claude/plans/legacy-budget-test"
+  local plans_dir=".codex/plans/migration-test"
+  local budget_dir=".codex/plans/legacy-budget-test"
   local prompt_log="${TMP_DIR}/migration-prompt.log"
   local baseline
 
   init_git_target "${target}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
+  bash "${CODEX_INSTALLER}" "${target}"
   (
     cd "${target}"
     baseline="$(git rev-parse HEAD)"
@@ -451,7 +422,7 @@ run_state_migration_test() {
     printf '%s\n' '{"items":[{"backlog_id":"backlog-0123456789ab","severity":"minor","origin":"task_related","confidence":"low","description":"legacy backlog item","evidence":"old free-form evidence","location":"src.txt:1","reason_non_blocking":"not proven"}]}' > "${plans_dir}/review-backlog.json"
     printf '# artifact\n' > "${plans_dir}/artifact-r1.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=pass \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "状态迁移" --artifact-type code --topic migration-test \
         --audit-round 1 --max-blind-audits '20 (goal-mode)' --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r1.md"
@@ -467,7 +438,7 @@ run_state_migration_test() {
     mkdir -p "${budget_dir}"
     printf '%s\n' "{\"version\":2,\"topic_slug\":\"legacy-budget-test\",\"artifact_type\":\"code\",\"git_baseline\":\"${baseline}\",\"max_blind_audits\":\"unlimited (goal-mode)\",\"rollover_every\":10,\"required_qualifying_blind_audits\":2,\"consecutive_qualifying_blind_audits\":0,\"completed_blind_audits\":20,\"next_blind_audit\":21,\"session_segment\":2,\"completed_in_current_session\":10,\"status\":\"handoff_required\"}" > "${budget_dir}/workflow-state.json"
     printf '# handoff\n' > "${budget_dir}/session-handoff.md"
-    .claude/skills/reviewer/bin/reviewer-run.sh resume --topic legacy-budget-test
+    .codex/skills/reviewer/bin/reviewer-run.sh resume --topic legacy-budget-test
     assert_json_value "${budget_dir}/workflow-state.json" version '3'
     assert_json_value "${budget_dir}/workflow-state.json" max_blind_audits '"20 (goal-mode)"'
     assert_json_value "${budget_dir}/workflow-state.json" status '"complete"'
@@ -478,19 +449,19 @@ run_state_migration_test() {
 
 run_consensus_flow_test() {
   local target="${TMP_DIR}/consensus-target"
-  local plans_dir=".claude/plans/consensus-test"
+  local plans_dir=".codex/plans/consensus-test"
   local prompt_log="${TMP_DIR}/consensus-prompt.log"
   local baseline
 
   init_git_target "${target}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
+  bash "${CODEX_INSTALLER}" "${target}"
   (
     cd "${target}"
     baseline="$(git rev-parse HEAD)"
     mkdir -p "${plans_dir}"
     printf '# artifact 1\n' > "${plans_dir}/artifact-r1.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=blocker \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "共识测试" --artifact-type code --topic consensus-test \
         --audit-round 1 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r1.md"
@@ -498,7 +469,7 @@ run_consensus_flow_test() {
     printf '# response\n\n1. issue-1\n   - decision: rejected\n   - verification-result: not_reproduced\n   - verification-evidence: rerun showed the task-required behavior\n   - action: none\n   - rationale: required behavior\n   - open-question: none\n' > "${plans_dir}/response-r1-i1.md"
     printf '# revision\n' > "${plans_dir}/revision-r1-i1.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=consensus_pass \
-      .claude/skills/reviewer/bin/reviewer-run.sh followup \
+      .codex/skills/reviewer/bin/reviewer-run.sh followup \
         --task "共识测试" --artifact-type code --topic consensus-test \
         --audit-round 1 --inner-iteration 1 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/revision-r1-i1.md" \
@@ -508,7 +479,7 @@ run_consensus_flow_test() {
 
     printf '# artifact 2\n' > "${plans_dir}/artifact-r2.md"
     REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=reopen \
-      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
         --task "共识测试" --artifact-type code --topic consensus-test \
         --audit-round 2 --max-blind-audits 2 --baseline "${baseline}" \
         --artifact "${plans_dir}/artifact-r2.md"
@@ -519,13 +490,13 @@ run_consensus_flow_test() {
 
 run_session_rollover_test() {
   local target="${TMP_DIR}/rollover-target"
-  local plans_dir=".claude/plans/rollover-test"
+  local plans_dir=".codex/plans/rollover-test"
   local prompt_log="${TMP_DIR}/rollover-prompt.log"
   local baseline
   local audit_round
 
   init_git_target "${target}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
+  bash "${CODEX_INSTALLER}" "${target}"
   (
     cd "${target}"
     baseline="$(git rev-parse HEAD)"
@@ -534,14 +505,14 @@ run_session_rollover_test() {
     for ((audit_round = 1; audit_round <= 10; audit_round++)); do
       printf '# artifact %s\n' "${audit_round}" > "${plans_dir}/artifact-r${audit_round}.md"
       REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=blocker \
-        .claude/skills/reviewer/bin/reviewer-run.sh blind \
+        .codex/skills/reviewer/bin/reviewer-run.sh blind \
           --task "长周期审查" --artifact-type code --topic rollover-test \
           --audit-round "${audit_round}" --max-blind-audits '20 (goal-mode)' --baseline "${baseline}" \
           --artifact "${plans_dir}/artifact-r${audit_round}.md"
       printf '# response\n\n1. issue-1\n   - decision: accepted\n   - verification-result: reproduced\n   - verification-evidence: test command returned changed instead of base\n   - action: fixed\n   - rationale: valid\n   - open-question: none\n' > "${plans_dir}/response-r${audit_round}-i1.md"
       printf '# revision\n' > "${plans_dir}/revision-r${audit_round}-i1.md"
       REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=pass \
-        .claude/skills/reviewer/bin/reviewer-run.sh followup \
+        .codex/skills/reviewer/bin/reviewer-run.sh followup \
           --task "长周期审查" --artifact-type code --topic rollover-test \
           --audit-round "${audit_round}" --inner-iteration 1 --max-blind-audits '20 (goal-mode)' --baseline "${baseline}" \
           --artifact "${plans_dir}/revision-r${audit_round}-i1.md" \
@@ -554,7 +525,7 @@ run_session_rollover_test() {
     assert_file "${plans_dir}/session-handoff.md"
     assert_contains "${plans_dir}/session-handoff.md" 'review-backlog.json'
 
-    .claude/skills/reviewer/bin/reviewer-run.sh resume --topic rollover-test
+    .codex/skills/reviewer/bin/reviewer-run.sh resume --topic rollover-test
     assert_json_value "${plans_dir}/workflow-state.json" session_segment '2'
     assert_json_value "${plans_dir}/workflow-state.json" completed_in_current_session '0'
     assert_not_exists "${plans_dir}/session-handoff.md"
@@ -562,14 +533,14 @@ run_session_rollover_test() {
     for ((audit_round = 11; audit_round <= 20; audit_round++)); do
       printf '# artifact %s\n' "${audit_round}" > "${plans_dir}/artifact-r${audit_round}.md"
       REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=blocker \
-        .claude/skills/reviewer/bin/reviewer-run.sh blind \
+        .codex/skills/reviewer/bin/reviewer-run.sh blind \
           --task "长周期审查" --artifact-type code --topic rollover-test \
           --audit-round "${audit_round}" --max-blind-audits '20 (goal-mode)' --baseline "${baseline}" \
           --artifact "${plans_dir}/artifact-r${audit_round}.md"
       printf '# response\n\n1. issue-1\n   - decision: accepted\n   - verification-result: reproduced\n   - verification-evidence: test command returned changed instead of base\n   - action: fixed\n   - rationale: valid\n   - open-question: none\n' > "${plans_dir}/response-r${audit_round}-i1.md"
       printf '# revision\n' > "${plans_dir}/revision-r${audit_round}-i1.md"
       REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=pass \
-        .claude/skills/reviewer/bin/reviewer-run.sh followup \
+        .codex/skills/reviewer/bin/reviewer-run.sh followup \
           --task "长周期审查" --artifact-type code --topic rollover-test \
           --audit-round "${audit_round}" --inner-iteration 1 --max-blind-audits '20 (goal-mode)' --baseline "${baseline}" \
           --artifact "${plans_dir}/revision-r${audit_round}-i1.md" \
@@ -585,7 +556,6 @@ run_session_rollover_test() {
 
 write_fake_codex
 run_codex_install_test
-run_claude_install_test
 run_root_install_tests
 run_convergence_flow_test
 run_invalid_classification_test

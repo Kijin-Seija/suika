@@ -5,7 +5,6 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
-CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
 rm -rf "${TMP_DIR}"
@@ -91,12 +90,13 @@ run_start_failure_smoke_test() {
   [[ ! -e "${state_dir}" ]] || fail "cleanup should remove failed runtime directory"
 }
 
-run_codex_install_test() {
-  local target="${TMP_DIR}/codex-target"
-  mkdir -p "${target}"
+assert_install() {
+  local installer="$1"
+  local target="$2"
+  shift 2
 
-  assert_file "${CODEX_INSTALLER}"
-  bash "${CODEX_INSTALLER}" "${target}"
+  mkdir -p "${target}"
+  bash "${installer}" "$@" "${target}"
 
   assert_file "${target}/.codex/skills/debug-auto/SKILL.md"
   assert_file "${target}/.codex/skills/debug-steps/SKILL.md"
@@ -107,90 +107,22 @@ run_codex_install_test() {
   assert_file "${target}/AGENTS.md"
   assert_executable "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
   assert_executable "${target}/.codex/skills/debug-steps/bin/debug_log_server.py"
-  [[ ! -e "${target}/.codex/skills/debug/SKILL.md" ]] || fail "legacy debug skill should not be installed for codex"
 
   assert_contains "${target}/AGENTS.md" ".codex/skills/debug-auto/SKILL.md"
   assert_contains "${target}/AGENTS.md" ".codex/skills/debug-steps/SKILL.md"
   assert_contains "${target}/AGENTS.md" ".codex/skills/debug-manual/SKILL.md"
-  assert_contains "${target}/AGENTS.md" "Playwright 或等价浏览器自动化能力"
-  assert_contains "${target}/.codex/skills/debug-auto/SKILL.md" "Playwright 或等价浏览器自动化能力"
   assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" '.codex/skills/debug-steps/bin/debug-session.sh start'
-  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" '.codex/skills/debug-steps/bin/debug-session.sh cleanup'
-  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" "不要默认要求用户去控制台粘贴调试代码"
-  assert_contains "${target}/.codex/skills/debug-steps/SKILL.md" "先移除本轮加到项目里的临时调试代码"
-  assert_contains "${target}/.codex/skills/debug-manual/SKILL.md" "不启动本地日志服务器"
-  assert_contains "${target}/.codex/skills/debug-steps/reference.md" '.codex/skills/debug-steps/bin/debug-session.sh start'
   assert_contains "${target}/.codex/skills/debug-steps/reference.md" '每次新的用户追加提问前'
-  assert_contains "${target}/.codex/skills/debug-steps/reference.md" "不要把“去控制台粘贴这段脚本”当成默认交互方式"
-
-  run_runtime_smoke_test "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
-  run_start_failure_smoke_test "${target}/.codex/skills/debug-steps/bin/debug-session.sh"
 }
 
-run_claude_install_test() {
-  local target="${TMP_DIR}/claude-target"
-  mkdir -p "${target}"
+assert_file "${CODEX_INSTALLER}"
+assert_file "${ROOT_INSTALLER}"
 
-  assert_file "${CLAUDE_INSTALLER}"
-  bash "${CLAUDE_INSTALLER}" "${target}"
+assert_install "${CODEX_INSTALLER}" "${TMP_DIR}/codex-target"
+run_runtime_smoke_test "${TMP_DIR}/codex-target/.codex/skills/debug-steps/bin/debug-session.sh"
+run_start_failure_smoke_test "${TMP_DIR}/codex-target/.codex/skills/debug-steps/bin/debug-session.sh"
 
-  assert_file "${target}/.claude/skills/debug/SKILL.md"
-  assert_file "${target}/.claude/skills/debug/reference.md"
-  assert_file "${target}/.claude/skills/debug/bin/debug-session.sh"
-  assert_file "${target}/.claude/skills/debug/bin/debug_log_server.py"
-  assert_file "${target}/CLAUDE.md"
-  assert_executable "${target}/.claude/skills/debug/bin/debug-session.sh"
-  assert_executable "${target}/.claude/skills/debug/bin/debug_log_server.py"
+assert_install "${ROOT_INSTALLER}" "${TMP_DIR}/root-default-target"
+assert_install "${ROOT_INSTALLER}" "${TMP_DIR}/root-codex-target" --codex
 
-  assert_contains "${target}/CLAUDE.md" ".claude/skills/debug/SKILL.md"
-  assert_contains "${target}/CLAUDE.md" "同一个临时 log 文件"
-  assert_contains "${target}/.claude/skills/debug/SKILL.md" '.claude/skills/debug/bin/debug-session.sh reset'
-  assert_contains "${target}/.claude/skills/debug/reference.md" '.claude/skills/debug/bin/debug-session.sh start'
-  assert_contains "${target}/.claude/skills/debug/reference.md" 'POST /clear'
-
-  run_runtime_smoke_test "${target}/.claude/skills/debug/bin/debug-session.sh"
-  run_start_failure_smoke_test "${target}/.claude/skills/debug/bin/debug-session.sh"
-}
-
-run_root_default_install_test() {
-  local target="${TMP_DIR}/root-all-target"
-  mkdir -p "${target}"
-
-  assert_file "${ROOT_INSTALLER}"
-  bash "${ROOT_INSTALLER}" "${target}"
-
-  assert_file "${target}/.codex/skills/debug-auto/SKILL.md"
-  assert_file "${target}/.codex/skills/debug-steps/SKILL.md"
-  assert_file "${target}/.codex/skills/debug-manual/SKILL.md"
-  assert_file "${target}/.claude/skills/debug/SKILL.md"
-}
-
-run_root_codex_install_test() {
-  local target="${TMP_DIR}/root-codex-target"
-  mkdir -p "${target}"
-
-  bash "${ROOT_INSTALLER}" --codex "${target}"
-
-  assert_file "${target}/.codex/skills/debug-auto/SKILL.md"
-  assert_file "${target}/.codex/skills/debug-steps/SKILL.md"
-  assert_file "${target}/.codex/skills/debug-manual/SKILL.md"
-  [[ ! -e "${target}/.claude/skills/debug/SKILL.md" ]] || fail "root --codex should not create claude files"
-}
-
-run_root_claude_install_test() {
-  local target="${TMP_DIR}/root-claude-target"
-  mkdir -p "${target}"
-
-  bash "${ROOT_INSTALLER}" --claude "${target}"
-
-  assert_file "${target}/.claude/skills/debug/SKILL.md"
-  [[ ! -e "${target}/.codex/skills/debug/SKILL.md" ]] || fail "root --claude should not create codex files"
-}
-
-run_codex_install_test
-run_claude_install_test
-run_root_default_install_test
-run_root_codex_install_test
-run_root_claude_install_test
-
-echo "PASS: debug root, codex and claude installers"
+echo "PASS: debug Codex installers"

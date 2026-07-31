@@ -65,7 +65,7 @@ agents_block() {
 
 该工作流支持两类制品：`code`（代码变更）和 `doc`（计划、分析、说明文档）。
 
-reviewer subagent 必须复用当前工作区直接读取最新文件和未提交改动，并忽略 `.codex/plans/` 与 `.claude/plans/`。不要退回用 shell 启动 `codex exec` 来充当 reviewer。兼容 launcher 默认模型仍为 `gpt-5.4`，可通过 `REVIEWER_CODEX_REVIEW_MODEL` 覆盖。
+reviewer subagent 必须复用当前工作区直接读取最新文件和未提交改动，并忽略 `.codex/plans/`。不要退回用 shell 启动 `codex exec` 来充当 reviewer。兼容 launcher 默认模型仍为 `gpt-5.4`，可通过 `REVIEWER_CODEX_REVIEW_MODEL` 覆盖。
 
 普通会话默认最多启动 `5` 次独立盲审；内层修订不计入该次数。当前 Codex 会话处于 goal 模式时使用 `20 (goal-mode)`。任意一次全新盲审没有交付阻塞问题即稳定收敛；第 20 轮内层收敛后按 review budget 结束。
 
