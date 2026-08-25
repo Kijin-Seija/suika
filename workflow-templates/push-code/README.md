@@ -56,10 +56,11 @@ workflow-templates/push-code/
    - 不能处于 detached HEAD
 2. 通过 `git push` 推送当前分支到远端。
 3. 直接调用 GitLab REST API 创建从当前分支到目标主分支的 MR，并获取 `mr_id`。
-4. 轮询 review 状态、discussions、普通 MR notes、external status checks 和 mergeability blockers：
+4. 轮询当前 head SHA 的全部 pipelines、review 状态、discussions、普通 MR notes、external status checks 和 mergeability blockers：
    - 如果 review 通过，则 MR 达到可提交状态
    - 如果 reviewer 提出问题，则读取 discussions / 普通 MR notes
-   - 即使结构化状态暂时还是 pending，也要重新检查最新非 system MR notes，避免把“CI 运行中但 reviewer 已给出 finding”误报成“仅等待 CI”
+   - 任意当前 head pipeline / external status check 失败都优先于其他 running / pending 信号，避免并行检查中的失败被仍在运行的检查遮住
+   - 即使结构化状态暂时还是 pending，也要重新检查全部非 system MR note revisions，避免漏掉 reviewer 对已有评论的编辑，或把“CI 运行中但 reviewer 已给出 finding”误报成“仅等待 CI”
    - 当前会话必须自己继续轮询，直到 MR 达到可提交状态、超时或出现明确 blocker
    - 若有异议，通过 GitLab discussion 或普通 MR note 回复
    - 若无异议，则修复代码、`git add`、`git commit`、`git push`

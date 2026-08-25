@@ -208,6 +208,7 @@ push-code-run.sh push --force-with-lease
 
 - `GET /api/v4/projects/:id/merge_requests/:iid`
 - `GET /api/v4/projects/:id`
+- `GET /api/v4/projects/:id/merge_requests/:iid/pipelines`
 - `GET /api/v4/projects/:id/merge_requests/:iid/status_checks`（如果实例支持且当前 token 有权限）
 - `GET /api/v4/projects/:id/merge_requests/:iid/discussions`
 - `GET /api/v4/projects/:id/merge_requests/:iid/approvals`（如果实例支持且当前 token 有权限）
@@ -216,9 +217,10 @@ push-code-run.sh push --force-with-lease
 
 - `detailed_merge_status=need_rebase`、存在 merge conflict，或 GitLab 明确返回 rebase blocker：`needs_rebase`
 - 如果项目 `merge_method` 是 `ff` / `rebase_merge`，且 `diverged_commits_count > 0`，即使 `detailed_merge_status` 还没刷新成 `need_rebase`，也按 `needs_rebase` 处理
-- `detailed_merge_status=ci_must_pass` / `status_checks_must_pass` 且 `head_pipeline.status=failed`：`changes_requested`
-- 只要 `head_pipeline.status=failed|canceled|canceling|skipped`，即使 `detailed_merge_status=mergeable`，也按 `changes_requested` 处理，避免把红色 pipeline 误判为通过
-- `status_checks` 里只要存在 `failed` 项：`changes_requested`
+- pipeline 列表只统计 `sha == MR 当前 head SHA` 或 `sha == head_pipeline.sha` 的记录，以兼容 merged-results pipeline；旧提交对应的 pipeline 不参与当前结论
+- 任意当前 head pipeline 为 `failed|canceled|canceling|skipped`：立即按 `changes_requested` 处理；该失败优先于其他 pipeline 的 `running|pending`
+- `detailed_merge_status=ci_must_pass` / `status_checks_must_pass` 且任意当前 head pipeline 失败：`changes_requested`
+- `status_checks` 里只要存在 `failed` 项：立即按 `changes_requested` 处理；该失败优先于 pipeline / status check 的 running / pending 信号
 - `status_checks` 里只要还存在 `pending` 项：`pending`
 - 只要 `head_pipeline.status` 仍处于 `running` / `pending` / `preparing` 等未完成状态，即使 `detailed_merge_status=mergeable` 也仍然是 `pending`
 - 存在未解决的可解析 discussion：`changes_requested`
@@ -285,7 +287,16 @@ push-code-run.sh push --force-with-lease
 - `non_system_notes_total`
 - `latest_non_system_note_id`
 - `latest_non_system_note_created_at`
+- `latest_non_system_note_updated_at`
+- `latest_non_system_note_body_sha256`
+- `latest_non_system_note_revision_key`
 - `latest_non_system_note_author`
+- `review_notes_fingerprint`
+- `review_note_revisions_total`
+
+普通 MR note 和 discussion note 都会包含 `updated_at`、`body_sha256` 和 `revision_key`。同一个 note 即使 `id` / `created_at` 不变，只要 reviewer 修改了正文，其 `revision_key` 和聚合后的 `review_notes_fingerprint` 就会变化。主 agent 与全局 monitor 都应按 revision 检测变化，不能只判断是否出现了新的 note ID。
+
+`workflow_guidance.can_announce_completion=true` 只代表结构化 pipeline / approval / discussion 状态允许通过。主 agent 仍必须确认当前 `review_notes_fingerprint` 中没有尚未阅读的新 revision；monitor 检测到 fingerprint 变化时，会暂时按 `needs_attention` 通知，而不会直接宣布 ready-to-submit。
 
 同时还会附带 `workflow_guidance`，至少包含：
 

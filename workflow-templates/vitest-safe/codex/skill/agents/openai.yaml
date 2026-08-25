@@ -1,0 +1,7 @@
+interface:
+  display_name: "Vitest Safe"
+  short_description: "Queue Vitest runs with a global atomic concurrency limit"
+  default_prompt: "Use $vitest-safe to run this Vitest command through the global queue."
+
+policy:
+  allow_implicit_invocation: true

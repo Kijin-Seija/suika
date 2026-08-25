@@ -261,7 +261,9 @@ run_codex_install_test() {
   assert_contains "${target}/AGENTS.md" 'spawn_agent(..., fork_turns="none")'
   assert_contains "${target}/AGENTS.md" 'review-backlog.json'
   assert_contains "${target}/AGENTS.md" '一次独立盲审'
+  assert_contains "${target}/AGENTS.md" '普通会话默认最多启动 `10` 次独立盲审'
   assert_contains "${target}/.codex/skills/reviewer/SKILL.md" '20 (goal-mode)'
+  assert_contains "${target}/.codex/skills/reviewer/SKILL.md" '普通会话默认 `10`'
   assert_contains "${target}/.codex/skills/reviewer/SKILL.md" '只有主 agent 可以修改代码或文档'
   assert_contains "${target}/.codex/skills/reviewer/SKILL.md" 'stable-convergence'
   assert_contains "${target}/.codex/skills/reviewer/prompts/codex-blind-review-request.md" 'delivery_blocking'
@@ -285,6 +287,30 @@ run_root_install_tests() {
   mkdir -p "${target}"
   bash "${ROOT_INSTALLER}" --codex "${target}"
   assert_file "${target}/.codex/skills/reviewer/SKILL.md"
+}
+
+run_default_budget_test() {
+  local target="${TMP_DIR}/default-budget-target"
+  local plans_dir=".codex/plans/default-budget-test"
+  local prompt_log="${TMP_DIR}/default-budget-prompt.log"
+  local baseline
+
+  init_git_target "${target}"
+  bash "${CODEX_INSTALLER}" "${target}"
+  (
+    cd "${target}"
+    baseline="$(git rev-parse HEAD)"
+    mkdir -p "${plans_dir}"
+    printf '# artifact\n' > "${plans_dir}/artifact-r1.md"
+    REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=blocker \
+      .codex/skills/reviewer/bin/reviewer-run.sh blind \
+        --task "默认轮次测试" --artifact-type code --topic default-budget-test \
+        --audit-round 1 --baseline "${baseline}" \
+        --artifact "${plans_dir}/artifact-r1.md"
+
+    assert_json_value "${plans_dir}/workflow-state.json" max_blind_audits '"10"'
+    assert_contains "${plans_dir}/brief.md" 'max-blind-audits: 10'
+  )
 }
 
 run_convergence_flow_test() {
@@ -557,6 +583,7 @@ run_session_rollover_test() {
 write_fake_codex
 run_codex_install_test
 run_root_install_tests
+run_default_budget_test
 run_convergence_flow_test
 run_invalid_classification_test
 run_state_migration_test

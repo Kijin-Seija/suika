@@ -107,14 +107,15 @@ push 成功后执行：
 
 处理规则：
 
-- 如果返回通过态，说明 MR 已达到可提交状态
+- 如果返回通过态，仍要先检查本轮 `review_notes_fingerprint` 和所有 note `revision_key`；只有不存在尚未阅读的新 revision 时，才能说明 MR 已达到可提交状态
 - 如果返回 `needs_rebase`，先处理本地 rebase，再继续等待 review
 - 如果返回变更请求态，继续拉取 discussions
 - `pending`、`ci_still_running`、`head_pipeline:running`、`external_status_checks_pending:*`、`awaiting_first_review_signal` 都不是完成态；只要还处于这些状态，就不能把 push-code 流程表述成“已完成 / 已通过 / 可以收口”
 - 在提交 MR 之后，当前会话必须自己继续定时轮询并跟进，直到 MR 达到可提交状态、超时或遇到明确 blocker
-- 即使返回 `pending`，也要读取这次返回里的最新非 system `notes`，与上一轮已处理 note 集合按 `id` / `created_at` 做差；只要出现新的 reviewer 普通 note，就把它视为待处理 finding，而不是直接口径收敛成“仅等待 CI”
+- 即使返回 `pending`，也要读取这次返回里的全部非 system `notes`，与上一轮已处理 note revision 集合按 `id` / `updated_at` / `body_sha256` 做差；新增 note 或已有 note 内容被编辑都必须视为待处理 finding，而不是直接口径收敛成“仅等待 CI”
 - 如果超时或 GitLab API 返回无法识别的状态，向用户说明并暂停自动循环
 - `status` / `wait-review` 的 JSON 里如果带有 `workflow_guidance.can_announce_completion=false`，就绝不能向用户发送“本次 push-code 已完成”的 final answer
+- `workflow_guidance.can_announce_completion=true` 只是结构化检查通过的必要信号，不会替代 note revision 检查；存在尚未阅读的新建或被编辑 note 时仍禁止收口
 - 当 `workflow_guidance.recommended_next_action` 是 `keep_waiting_for_ci_in_current_session`、`keep_waiting_in_current_session_and_treat_note_as_pending_finding` 或 `keep_waiting_for_review_signal_in_current_session` 时，按字面执行：继续由当前会话轮询
 - 只要当前状态仍是 `pending` / `ci_still_running` / `head_pipeline:running`，且没有出现“需要用户现在介入”的新 blocker，就必须继续停留在当前 turn 内轮询；可以发 commentary 进度，但不能发送 final answer 结束本轮
 - 即使你想表达“目前只是等 CI”，也只能用 commentary 同步阶段性状态，不能用 final answer 把线程收口
@@ -186,7 +187,7 @@ push 成功后执行：
 
 如果 `wait-review` 返回的阻塞来自 mergeability / pipeline / external review stage，而不是 discussion，则先读取 `status` / `threads` 输出里的 `meta`、`notes` 和 `raw.merge_request`，再判断是需要修代码、回复普通 note，还是仅等待检查继续运行。
 
-每次 push 之后重新进入 `wait-review` 时，都要把最新非 system MR notes 重新过一遍，不能因为 `unresolved_threads = 0` 就跳过。推荐至少维护一份“已处理 note 集合”，按 note 的 `id` / `created_at` 去重；只要发现新的 reviewer 普通 note，就要明确标成“待处理 review finding / 待确认 finding”。
+每次 push 之后重新进入 `wait-review` 时，都要把全部非 system MR notes 重新过一遍，不能因为 `unresolved_threads = 0` 就跳过。推荐至少维护一份“已处理 note revision 集合”，按 note 的 `revision_key` 去重；若没有该字段，则使用 `id` / `updated_at` / `body_sha256` 组合。只要发现新增 reviewer note，或已有 note 的 revision 发生变化，就要明确标成“待处理 review finding / 待确认 finding”。
 
 ### 7. 修复并再次 push
 
@@ -221,7 +222,7 @@ push 成功后执行：
 
 push-code 工作流只有两类允许收口的终态：
 
-- `approved`，或 `workflow_guidance.review_complete=true`
+- `approved`，或 `workflow_guidance.review_complete=true`，并且当前不存在尚未阅读的 reviewer note revision
 - 明确超时 / API 失败 / 需要用户介入，且你已经把 blocker 讲清楚
 
 以下状态一律不是完成态：
@@ -287,7 +288,7 @@ push-code 工作流只有两类允许收口的终态：
 - preflight 失败：终止流程并说明是 dirty working tree、detached HEAD 还是缺配置
 - push 失败：不要擅自改 remote 或强推；如果是本地 pre-push 检查失败，先分析并修复，再重新 commit + push
 - need rebase：先执行 `rebase-target`，完成后用 `push --force-with-lease` 更新远端分支
-- 外部 review / pipeline blocker：不要因为没有 thread 就判通过；先看 `detailed_merge_status`、`head_pipeline.status`、`status_checks` 和普通 MR notes
+- 外部 review / pipeline blocker：不要因为没有 thread 就判通过；先看当前 head SHA 的全部 `pipelines`、`detailed_merge_status`、`head_pipeline.status`、`status_checks` 和普通 MR notes。任意当前 head pipeline / status check 失败都优先于其他 running / pending 信号
 - unresolved threads 未关闭：即使 reviewer 已口头通过，MR 仍可能因为 `discussions_not_resolved` 无法合并；修复并 push 后记得 `resolve-thread`
 - create MR 失败：不要伪造 `mr_id`
 - wait review 超时：向用户报告当前 `mr_id`、最后一次状态和已知 discussions

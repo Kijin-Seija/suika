@@ -1425,7 +1425,7 @@ main() {
   local topic=""
   local audit_round=""
   local inner_iteration=""
-  local max_blind_audits="5"
+  local max_blind_audits="10"
   local baseline="n/a"
   local artifact_path=""
   local latest_review=""

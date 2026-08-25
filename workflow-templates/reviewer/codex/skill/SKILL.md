@@ -1,6 +1,6 @@
 ---
 name: reviewer
-description: 当用户显式要求使用 reviewer skill、reviewer 工作流、让 Codex 审查任务结果或执行持续审查循环时使用。先完成主任务，再执行上下文隔离的独立盲审；只有当前状态下已实际复现、可由主 agent 独立复验且与任务相关的缺陷才能阻塞交付。未来风险、静态猜测和“可能导致”类 finding 进入 backlog。一次独立盲审没有交付阻塞问题后稳定收敛；goal 模式全局最多 20 轮。
+description: 当用户显式要求使用 reviewer skill、reviewer 工作流、让 Codex 审查任务结果或执行持续审查循环时使用。先完成主任务，再执行上下文隔离的独立盲审；只有当前状态下已实际复现、可由主 agent 独立复验且与任务相关的缺陷才能阻塞交付。未来风险、静态猜测和“可能导致”类 finding 进入 backlog。一次独立盲审没有交付阻塞问题后稳定收敛；非 goal 模式默认最多 10 轮，goal 模式全局最多 20 轮。
 ---
 
 # Reviewer 工作流
@@ -29,7 +29,7 @@ description: 当用户显式要求使用 reviewer skill、reviewer 工作流、�
 
 ## 初始化
 
-收集或推断原始任务、`code|doc` 制品类型、lowercase kebab-case topic slug 和最大独立盲审次数。普通会话默认 `5`；存在未完成 goal 时使用 `20 (goal-mode)`。
+收集或推断原始任务、`code|doc` 制品类型、lowercase kebab-case topic slug 和最大独立盲审次数。普通会话默认 `10`；存在未完成 goal 时使用 `20 (goal-mode)`。
 
 在 `.codex/plans/<topic-slug>/` 创建并持久化：
 

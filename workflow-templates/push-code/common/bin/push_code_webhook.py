@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import datetime as dt
+import hashlib
 import json
 import os
 import shutil
@@ -330,6 +331,38 @@ def discussion_resolvable(discussion: dict[str, Any]) -> bool:
     return any(bool(note.get("resolvable")) for note in discussion.get("notes", []))
 
 
+def sha256_text(value: str) -> str:
+    return hashlib.sha256(value.encode("utf-8")).hexdigest()
+
+
+def normalize_review_note(note: dict[str, Any]) -> dict[str, Any]:
+    body = str(note.get("body") or "")
+    updated_at = note.get("updated_at")
+    revision_payload = json.dumps(
+        {
+            "id": note.get("id"),
+            "updated_at": updated_at or note.get("created_at"),
+            "body_sha256": sha256_text(body),
+        },
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return {
+        "id": note.get("id"),
+        "body": body,
+        "body_sha256": sha256_text(body),
+        "revision_key": sha256_text(revision_payload),
+        "author": (note.get("author") or {}).get("username"),
+        "created_at": note.get("created_at"),
+        "updated_at": updated_at,
+        "system": note.get("system", False),
+        "internal": note.get("internal", False),
+        "resolved": note.get("resolved"),
+        "resolvable": note.get("resolvable"),
+    }
+
+
 def normalize_discussion(discussion: dict[str, Any]) -> dict[str, Any]:
     notes = discussion.get("notes", [])
     return {
@@ -337,18 +370,7 @@ def normalize_discussion(discussion: dict[str, Any]) -> dict[str, Any]:
         "individual_note": discussion.get("individual_note", False),
         "resolved": discussion_resolved(discussion),
         "resolvable": discussion_resolvable(discussion),
-        "notes": [
-            {
-                "id": note.get("id"),
-                "body": note.get("body"),
-                "author": (note.get("author") or {}).get("username"),
-                "created_at": note.get("created_at"),
-                "resolved": note.get("resolved"),
-                "resolvable": note.get("resolvable"),
-                "system": note.get("system", False),
-            }
-            for note in notes
-        ],
+        "notes": [normalize_review_note(note) for note in notes if isinstance(note, dict)],
     }
 
 
@@ -361,15 +383,7 @@ def list_discussions(project_id: str, mr_id: str) -> list[dict[str, Any]]:
 
 
 def normalize_note(note: dict[str, Any]) -> dict[str, Any]:
-    body = str(note.get("body") or "")
-    return {
-        "id": note.get("id"),
-        "body": body,
-        "author": (note.get("author") or {}).get("username"),
-        "created_at": note.get("created_at"),
-        "system": note.get("system", False),
-        "internal": note.get("internal", False),
-    }
+    return normalize_review_note(note)
 
 
 def list_merge_request_notes(project_id: str, mr_id: str) -> list[dict[str, Any]]:
@@ -383,8 +397,64 @@ def list_merge_request_notes(project_id: str, mr_id: str) -> list[dict[str, Any]
     return [normalize_note(item) for item in payload if isinstance(item, dict)]
 
 
-def enrich_meta_with_notes(meta: dict[str, Any], notes: list[dict[str, Any]]) -> dict[str, Any]:
+def review_note_revision_entries(
+    notes: list[dict[str, Any]],
+    discussions: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    revisions_by_note: dict[str, dict[str, Any]] = {}
+    candidates = list(notes)
+    for discussion in discussions:
+        candidates.extend(
+            note for note in discussion.get("notes", []) if isinstance(note, dict)
+        )
+    for note in candidates:
+        if note.get("system", False):
+            continue
+        note_id = note.get("id")
+        identity = str(note_id) if note_id is not None else str(note.get("revision_key") or "")
+        entry = {
+            "id": note_id,
+            "author": note.get("author"),
+            "created_at": note.get("created_at"),
+            "updated_at": note.get("updated_at"),
+            "body_sha256": note.get("body_sha256") or sha256_text(str(note.get("body") or "")),
+            "revision_key": note.get("revision_key"),
+        }
+        previous = revisions_by_note.get(identity)
+        if previous is None or (
+            str(entry.get("updated_at") or entry.get("created_at") or ""),
+            str(entry.get("revision_key") or ""),
+        ) >= (
+            str(previous.get("updated_at") or previous.get("created_at") or ""),
+            str(previous.get("revision_key") or ""),
+        ):
+            revisions_by_note[identity] = entry
+    return sorted(
+        revisions_by_note.values(),
+        key=lambda item: (str(item.get("id") or ""), str(item.get("revision_key") or "")),
+    )
+
+
+def review_notes_fingerprint(
+    notes: list[dict[str, Any]],
+    discussions: list[dict[str, Any]],
+) -> str:
+    payload = json.dumps(
+        review_note_revision_entries(notes, discussions),
+        ensure_ascii=False,
+        sort_keys=True,
+        separators=(",", ":"),
+    )
+    return sha256_text(payload)
+
+
+def enrich_meta_with_notes(
+    meta: dict[str, Any],
+    notes: list[dict[str, Any]],
+    discussions: list[dict[str, Any]],
+) -> dict[str, Any]:
     next_meta = dict(meta)
+    revision_entries = review_note_revision_entries(notes, discussions)
     non_system_notes = [note for note in notes if not note.get("system", False)]
     latest_non_system_note = non_system_notes[-1] if non_system_notes else None
     next_meta["notes_total"] = len(notes)
@@ -393,8 +463,26 @@ def enrich_meta_with_notes(meta: dict[str, Any], notes: list[dict[str, Any]]) ->
     next_meta["latest_non_system_note_created_at"] = (
         latest_non_system_note.get("created_at") if latest_non_system_note else None
     )
+    next_meta["latest_non_system_note_updated_at"] = (
+        latest_non_system_note.get("updated_at") if latest_non_system_note else None
+    )
+    next_meta["latest_non_system_note_body_sha256"] = (
+        latest_non_system_note.get("body_sha256") if latest_non_system_note else None
+    )
+    next_meta["latest_non_system_note_revision_key"] = (
+        latest_non_system_note.get("revision_key") if latest_non_system_note else None
+    )
     next_meta["latest_non_system_note_author"] = (
         latest_non_system_note.get("author") if latest_non_system_note else None
+    )
+    next_meta["review_note_revisions_total"] = len(revision_entries)
+    next_meta["review_notes_fingerprint"] = sha256_text(
+        json.dumps(
+            revision_entries,
+            ensure_ascii=False,
+            sort_keys=True,
+            separators=(",", ":"),
+        )
     )
     return next_meta
 
@@ -416,6 +504,31 @@ def list_status_checks(project_id: str, mr_id: str) -> list[dict[str, Any]]:
     if not isinstance(payload, list):
         fail("GitLab status checks 响应格式不正确")
     return [normalize_status_check(item) for item in payload if isinstance(item, dict)]
+
+
+def normalize_pipeline(pipeline: dict[str, Any]) -> dict[str, Any]:
+    return {
+        "id": pipeline.get("id"),
+        "iid": pipeline.get("iid"),
+        "name": pipeline.get("name"),
+        "sha": pipeline.get("sha"),
+        "ref": pipeline.get("ref"),
+        "source": pipeline.get("source"),
+        "status": str(pipeline.get("status") or "").strip().lower(),
+        "created_at": pipeline.get("created_at"),
+        "updated_at": pipeline.get("updated_at"),
+        "web_url": pipeline.get("web_url"),
+    }
+
+
+def list_merge_request_pipelines(project_id: str, mr_id: str) -> list[dict[str, Any]]:
+    path = f"/projects/{project_ref(project_id)}/merge_requests/{mr_ref(mr_id)}/pipelines?per_page=100"
+    payload = request_json(path, method="GET", allow_statuses={403, 404})
+    if isinstance(payload, dict) and "_http_error" in payload:
+        return []
+    if not isinstance(payload, list):
+        fail("GitLab merge request pipelines 响应格式不正确")
+    return [normalize_pipeline(item) for item in payload if isinstance(item, dict)]
 
 
 def get_merge_request(project_id: str, mr_id: str) -> dict[str, Any]:
@@ -471,17 +584,82 @@ def review_grace_seconds() -> int:
         return 60
 
 
+def merge_request_head_sha(mr: dict[str, Any]) -> str:
+    diff_refs = mr.get("diff_refs") if isinstance(mr.get("diff_refs"), dict) else {}
+    return str(mr.get("sha") or diff_refs.get("head_sha") or "").strip()
+
+
+def pipelines_for_current_head(
+    mr: dict[str, Any],
+    pipelines: list[dict[str, Any]],
+) -> list[dict[str, Any]]:
+    head_sha = merge_request_head_sha(mr)
+    head_pipeline = mr.get("head_pipeline") if isinstance(mr.get("head_pipeline"), dict) else {}
+    normalized_head_pipeline = normalize_pipeline(head_pipeline) if head_pipeline else None
+    head_pipeline_id = normalized_head_pipeline.get("id") if normalized_head_pipeline else None
+    pipeline_head_sha = (
+        str(normalized_head_pipeline.get("sha") or "").strip()
+        if normalized_head_pipeline
+        else ""
+    )
+    current_pipeline_shas = {value for value in {head_sha, pipeline_head_sha} if value}
+    relevant_by_id: dict[str, dict[str, Any]] = {}
+
+    for pipeline in pipelines:
+        pipeline_sha = str(pipeline.get("sha") or "").strip()
+        pipeline_id = pipeline.get("id")
+        if (
+            current_pipeline_shas
+            and pipeline_sha not in current_pipeline_shas
+            and pipeline_id != head_pipeline_id
+        ):
+            continue
+        if not current_pipeline_shas and pipeline_id != head_pipeline_id:
+            continue
+        identity = str(pipeline_id) if pipeline_id is not None else json.dumps(
+            [pipeline_sha, pipeline.get("source"), pipeline.get("ref"), pipeline.get("status")],
+            ensure_ascii=False,
+        )
+        relevant_by_id[identity] = pipeline
+
+    if normalized_head_pipeline:
+        pipeline_sha = str(normalized_head_pipeline.get("sha") or head_sha).strip()
+        normalized_head_pipeline["sha"] = pipeline_sha
+        identity = (
+            str(head_pipeline_id)
+            if head_pipeline_id is not None
+            else json.dumps(
+                [pipeline_sha, "head_pipeline", normalized_head_pipeline.get("status")],
+                ensure_ascii=False,
+            )
+        )
+        relevant_by_id[identity] = normalized_head_pipeline
+
+    return sorted(
+        relevant_by_id.values(),
+        key=lambda item: (int(item.get("id") or 0), str(item.get("status") or "")),
+    )
+
+
 def derive_structured_status(
     mr: dict[str, Any],
     project: dict[str, Any] | None,
     approvals: dict[str, Any] | None,
     status_checks: list[dict[str, Any]],
+    pipelines: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
     detailed_merge_status = str(
         mr.get("detailed_merge_status") or mr.get("merge_status") or ""
     ).strip()
     head_pipeline = mr.get("head_pipeline") if isinstance(mr.get("head_pipeline"), dict) else {}
     head_pipeline_status = str(head_pipeline.get("status") or "").strip().lower()
+    current_head_pipelines = pipelines_for_current_head(mr, pipelines or [])
+    failed_pipelines = [
+        item for item in current_head_pipelines if item.get("status") in PIPELINE_FAILED_STATUSES
+    ]
+    pending_pipelines = [
+        item for item in current_head_pipelines if item.get("status") in PIPELINE_PENDING_STATUSES
+    ]
     merge_method = str((project or {}).get("merge_method") or "").strip().lower()
     diverged_commits_count_raw = mr.get("diverged_commits_count")
     try:
@@ -497,6 +675,16 @@ def derive_structured_status(
         "merge_error": mr.get("merge_error"),
         "head_pipeline_status": head_pipeline_status,
         "head_pipeline_id": head_pipeline.get("id"),
+        "head_sha": merge_request_head_sha(mr),
+        "pipelines_total": len(current_head_pipelines),
+        "pipelines_failed": len(failed_pipelines),
+        "pipelines_pending": len(pending_pipelines),
+        "pipeline_failed_ids": [item.get("id") for item in failed_pipelines],
+        "pipeline_pending_ids": [item.get("id") for item in pending_pipelines],
+        "pipeline_statuses": [
+            {"id": item.get("id"), "status": item.get("status"), "source": item.get("source")}
+            for item in current_head_pipelines
+        ],
         "merge_method": merge_method,
         "diverged_commits_count": diverged_commits_count,
         "status_checks_total": len(status_checks),
@@ -522,20 +710,11 @@ def derive_structured_status(
     merge_error = str(meta["merge_error"] or "").lower()
     if "rebase" in merge_error:
         return "needs_rebase", "rebase_failed", meta
-    if detailed_merge_status in {"checking", "unchecked", "preparing", "approvals_syncing"}:
-        return "pending", detailed_merge_status, meta
-    if detailed_merge_status == "ci_still_running":
-        return "pending", "ci_still_running", meta
-    if detailed_merge_status in {
+    pipeline_blocking_statuses = {
         "ci_must_pass",
         "status_checks_must_pass",
         "security_policy_pipeline_check",
-    }:
-        if head_pipeline_status in PIPELINE_PENDING_STATUSES:
-            return "pending", f"{detailed_merge_status}:{head_pipeline_status}", meta
-        if head_pipeline_status in PIPELINE_FAILED_STATUSES:
-            return "changes_requested", f"{detailed_merge_status}:{head_pipeline_status}", meta
-        return "pending", detailed_merge_status, meta
+    }
     if detailed_merge_status in {
         "requested_changes",
         "discussions_not_resolved",
@@ -549,14 +728,32 @@ def derive_structured_status(
         "locked_lfs_files",
     }:
         return "changes_requested", detailed_merge_status, meta
-    if detailed_merge_status == "not_approved":
-        return "pending", "not_approved", meta
-    if head_pipeline_status in PIPELINE_PENDING_STATUSES:
-        return "pending", f"head_pipeline:{head_pipeline_status}", meta
-    if head_pipeline_status in PIPELINE_FAILED_STATUSES:
-        return "changes_requested", f"head_pipeline:{head_pipeline_status}", meta
+
+    # Any failure for the current MR head must win over still-running signals.
+    if failed_pipelines:
+        if head_pipeline_status in PIPELINE_FAILED_STATUSES:
+            if detailed_merge_status in pipeline_blocking_statuses:
+                return "changes_requested", f"{detailed_merge_status}:{head_pipeline_status}", meta
+            return "changes_requested", f"head_pipeline:{head_pipeline_status}", meta
+        return "changes_requested", f"pipelines_failed:{len(failed_pipelines)}", meta
     if meta["status_checks_failed"] > 0:
         return "changes_requested", f"external_status_checks_failed:{meta['status_checks_failed']}", meta
+
+    if detailed_merge_status in {"checking", "unchecked", "preparing", "approvals_syncing"}:
+        return "pending", detailed_merge_status, meta
+    if detailed_merge_status == "ci_still_running":
+        return "pending", "ci_still_running", meta
+    if detailed_merge_status in pipeline_blocking_statuses:
+        if pending_pipelines:
+            pending_status = head_pipeline_status or str(pending_pipelines[0].get("status") or "")
+            return "pending", f"{detailed_merge_status}:{pending_status}", meta
+        return "pending", detailed_merge_status, meta
+    if detailed_merge_status == "not_approved":
+        return "pending", "not_approved", meta
+    if pending_pipelines:
+        if head_pipeline_status in PIPELINE_PENDING_STATUSES:
+            return "pending", f"head_pipeline:{head_pipeline_status}", meta
+        return "pending", f"pipelines_pending:{len(pending_pipelines)}", meta
     if meta["status_checks_pending"] > 0:
         return "pending", f"external_status_checks_pending:{meta['status_checks_pending']}", meta
 
@@ -599,8 +796,15 @@ def normalize_status(
     discussions: list[dict[str, Any]],
     approvals: dict[str, Any] | None,
     status_checks: list[dict[str, Any]],
+    pipelines: list[dict[str, Any]] | None = None,
 ) -> tuple[str, str, dict[str, Any]]:
-    status, raw_status, meta = derive_structured_status(mr, project, approvals, status_checks)
+    status, raw_status, meta = derive_structured_status(
+        mr,
+        project,
+        approvals,
+        status_checks,
+        pipelines,
+    )
     status, raw_status, meta = apply_discussion_status(status, raw_status, meta, discussions)
     if status in APPROVED_STATES:
         return "approved", raw_status, meta
@@ -719,10 +923,18 @@ def fetch_status_bundle(project_id: str, mr_id: str) -> dict[str, Any]:
     project = get_project(project_id)
     approvals = get_approvals(project_id, mr_id)
     status_checks = list_status_checks(project_id, mr_id)
+    pipelines = list_merge_request_pipelines(project_id, mr_id)
     discussions = list_discussions(project_id, mr_id)
     notes = list_merge_request_notes(project_id, mr_id)
-    status, raw_status, meta = normalize_status(mr, project, discussions, approvals, status_checks)
-    meta = enrich_meta_with_notes(meta, notes)
+    status, raw_status, meta = normalize_status(
+        mr,
+        project,
+        discussions,
+        approvals,
+        status_checks,
+        pipelines,
+    )
+    meta = enrich_meta_with_notes(meta, notes, discussions)
     workflow_guidance = build_workflow_guidance(status, raw_status, meta)
     return {
         "status": status,
@@ -735,6 +947,7 @@ def fetch_status_bundle(project_id: str, mr_id: str) -> dict[str, Any]:
         "notes": notes,
         "approvals": approvals,
         "status_checks": status_checks,
+        "pipelines": pipelines,
     }
 
 
@@ -774,6 +987,7 @@ def command_status(args: argparse.Namespace) -> int:
             "merge_request": bundle["merge_request"],
             "approvals": bundle["approvals"],
             "status_checks": bundle["status_checks"],
+            "pipelines": bundle["pipelines"],
         },
     }
     print_json(output)
@@ -812,6 +1026,7 @@ def command_wait_review(args: argparse.Namespace) -> int:
                 "merge_request": bundle["merge_request"],
                 "approvals": bundle["approvals"],
                 "status_checks": bundle["status_checks"],
+                "pipelines": bundle["pipelines"],
             },
         }
         if bundle["status"] == "approved":

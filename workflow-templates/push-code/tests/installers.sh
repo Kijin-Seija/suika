@@ -727,9 +727,15 @@ cat <<'JSON'
   "raw_status": "head_pipeline:failed",
   "meta": {
     "head_pipeline_status": "failed",
+    "pipelines_failed": 1,
+    "pipelines_pending": 1,
     "unresolved_threads": 1,
     "latest_non_system_note_id": 11,
     "latest_non_system_note_created_at": "2026-01-02T00:00:00Z",
+    "latest_non_system_note_updated_at": "2026-01-02T00:00:01Z",
+    "latest_non_system_note_revision_key": "note-revision-v1",
+    "review_note_revisions_total": 1,
+    "review_notes_fingerprint": "review-fingerprint-v1",
     "latest_non_system_note_author": "reviewer"
   },
   "notes": [
@@ -737,6 +743,7 @@ cat <<'JSON'
       "id": 11,
       "author": "reviewer",
       "body": "please fix",
+      "updated_at": "2026-01-02T00:00:01Z",
       "system": false
     }
   ],
@@ -773,6 +780,25 @@ EOF
   assert_output_contains "${output}" '"needs_attention"'
   assert_output_contains "${output}" '"notified": true'
 
+  output="$(node "$(global_monitor_script_path)" scan 2>&1)"
+  assert_output_contains "${output}" '"notifications": []'
+
+  sed -i.bak \
+    -e 's/review-fingerprint-v1/review-fingerprint-v2/' \
+    -e 's/note-revision-v1/note-revision-v2/' \
+    -e 's/please fix/please fix edited/' \
+    -e 's/2026-01-02T00:00:01Z/2026-01-02T00:05:00Z/g' \
+    -e 's/"status": "changes_requested"/"status": "approved"/' \
+    -e 's/"review_complete": false/"review_complete": true/' \
+    -e 's/"can_announce_completion": false/"can_announce_completion": true/' \
+    "${target}/.codex/skills/push-code/bin/push-code-run.sh"
+  rm -f "${target}/.codex/skills/push-code/bin/push-code-run.sh.bak"
+
+  output="$(node "$(global_monitor_script_path)" scan 2>&1)"
+  assert_output_contains "${output}" '"notified": true'
+  assert_output_contains "${output}" '"review_revision_changed": true'
+  assert_output_contains "${output}" '"ready_to_submit": false'
+
   output="$(python3 - "$(global_monitor_db_path)" <<'EOF'
 import json
 import sqlite3
@@ -805,7 +831,7 @@ EOF
   [[ -f "${stdin_file}" ]] || fail "fake codex stdin file not created"
   assert_contains "${args_file}" 'exec resume --skip-git-repo-check thread-scan-demo -'
   assert_contains "${stdin_file}" 'Push-code MR 定时巡检结果：'
-  assert_contains "${stdin_file}" '当前 MR 需要继续处理。'
+  assert_contains "${stdin_file}" '检测到 reviewer note 内容新增或被编辑，请重新阅读对应 revision 后再判断是否可提交。'
 }
 
 run_monitor_invalid_registration_cleanup_test() {
@@ -1139,11 +1165,45 @@ mr_pipeline_running = {
     "detailed_merge_status": "mergeable",
     "has_conflicts": False,
     "rebase_in_progress": False,
+    "sha": "current-head-sha",
     "head_pipeline": {"status": "running", "id": 100},
 }
 status, raw_status, meta = module.normalize_status(mr_pipeline_running, None, [], None, [])
 assert status == "pending", (status, raw_status, meta)
 assert raw_status == "head_pipeline:running", (status, raw_status, meta)
+
+parallel_pipelines = [
+    {"id": 99, "sha": "old-head-sha", "status": "failed", "source": "merge_request_event"},
+    {"id": 100, "sha": "current-head-sha", "status": "running", "source": "merge_request_event"},
+    {"id": 101, "sha": "current-head-sha", "status": "failed", "source": "external"},
+]
+mr_parallel_pipeline_failed = dict(mr_pipeline_running)
+mr_parallel_pipeline_failed["detailed_merge_status"] = "ci_still_running"
+status, raw_status, meta = module.normalize_status(
+    mr_parallel_pipeline_failed,
+    None,
+    [],
+    None,
+    [],
+    parallel_pipelines,
+)
+assert status == "changes_requested", (status, raw_status, meta)
+assert raw_status == "pipelines_failed:1", (status, raw_status, meta)
+assert meta["pipelines_failed"] == 1, meta
+assert meta["pipelines_pending"] == 1, meta
+assert meta["pipeline_failed_ids"] == [101], meta
+
+status, raw_status, meta = module.normalize_status(
+    mr_pipeline_running,
+    None,
+    [],
+    None,
+    [],
+    [{"id": 99, "sha": "old-head-sha", "status": "failed"}],
+)
+assert status == "pending", (status, raw_status, meta)
+assert raw_status == "head_pipeline:running", (status, raw_status, meta)
+assert meta["pipelines_failed"] == 0, meta
 
 status_checks_failed = [
     {"id": 1, "name": "external", "status": "failed", "external_url": "https://example.test/check/1"},
@@ -1152,6 +1212,16 @@ status, raw_status, meta = module.normalize_status(mr_note_only, None, [], None,
 assert status == "changes_requested", (status, raw_status, meta)
 assert raw_status == "external_status_checks_failed:1", (status, raw_status, meta)
 assert meta["status_checks_failed"] == 1, meta
+
+status, raw_status, meta = module.normalize_status(
+    mr_pipeline_running,
+    None,
+    [],
+    None,
+    status_checks_failed,
+)
+assert status == "changes_requested", (status, raw_status, meta)
+assert raw_status == "external_status_checks_failed:1", (status, raw_status, meta)
 
 status_checks_pending = [
     {"id": 2, "name": "external", "status": "pending", "external_url": "https://example.test/check/2"},
@@ -1180,6 +1250,7 @@ module.get_merge_request = lambda project_id, mr_id: mr_note_only
 module.get_project = lambda project_id: None
 module.get_approvals = lambda project_id, mr_id: None
 module.list_status_checks = lambda project_id, mr_id: []
+module.list_merge_request_pipelines = lambda project_id, mr_id: []
 module.list_discussions = lambda project_id, mr_id: []
 
 def capture_approved_notes(project_id, mr_id):
@@ -1237,6 +1308,52 @@ assert bundle["meta"]["non_system_notes_total"] == 1, bundle
 assert bundle["meta"]["latest_non_system_note_id"] == 21, bundle
 assert bundle["workflow_guidance"]["can_announce_completion"] is False, bundle
 assert bundle["workflow_guidance"]["user_facing_state"] == "ci_running_with_pending_finding", bundle
+
+original_note = module.normalize_note({
+    "id": 31,
+    "body": "LGTM",
+    "author": {"username": "review-bot"},
+    "created_at": "2026-01-04T00:00:00Z",
+    "updated_at": "2026-01-04T00:00:00Z",
+    "system": False,
+})
+edited_note = module.normalize_note({
+    "id": 31,
+    "body": "审核不通过：请修复并行状态判断",
+    "author": {"username": "review-bot"},
+    "created_at": "2026-01-04T00:00:00Z",
+    "updated_at": "2026-01-04T00:05:00Z",
+    "system": False,
+})
+later_note = module.normalize_note({
+    "id": 32,
+    "body": "later note",
+    "author": {"username": "review-bot"},
+    "created_at": "2026-01-04T00:01:00Z",
+    "updated_at": "2026-01-04T00:01:00Z",
+    "system": False,
+})
+assert original_note["revision_key"] != edited_note["revision_key"], (original_note, edited_note)
+assert original_note["body_sha256"] != edited_note["body_sha256"], (original_note, edited_note)
+original_fingerprint = module.review_notes_fingerprint([original_note, later_note], [])
+edited_fingerprint = module.review_notes_fingerprint([edited_note, later_note], [])
+assert original_fingerprint != edited_fingerprint, (original_fingerprint, edited_fingerprint)
+
+discussion = module.normalize_discussion({
+    "id": "discussion-1",
+    "notes": [{
+        "id": 41,
+        "body": "edited discussion finding",
+        "author": {"username": "review-bot"},
+        "created_at": "2026-01-04T00:00:00Z",
+        "updated_at": "2026-01-04T00:06:00Z",
+        "system": False,
+        "resolvable": True,
+        "resolved": False,
+    }],
+})
+assert discussion["notes"][0]["updated_at"] == "2026-01-04T00:06:00Z", discussion
+assert discussion["notes"][0]["revision_key"], discussion
 EOF
 }
 

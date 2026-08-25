@@ -1213,33 +1213,69 @@ function buildFingerprint(bundle) {
       status: String(bundle.status || ""),
       raw_status: String(bundle.raw_status || ""),
       head_pipeline_status: String(meta.head_pipeline_status || ""),
+      pipelines_failed: meta.pipelines_failed ?? null,
+      pipelines_pending: meta.pipelines_pending ?? null,
       unresolved_threads: meta.unresolved_threads ?? null,
       latest_non_system_note_id: meta.latest_non_system_note_id ?? null,
       latest_non_system_note_created_at: meta.latest_non_system_note_created_at ?? null,
-      head_sha: String(mr.sha || ""),
+      latest_non_system_note_updated_at: meta.latest_non_system_note_updated_at ?? null,
+      latest_non_system_note_revision_key: meta.latest_non_system_note_revision_key ?? null,
+      review_notes_fingerprint: String(meta.review_notes_fingerprint || ""),
+      head_sha: String(mr.sha || meta.head_sha || ""),
     },
     Object.keys({
       status: "",
       raw_status: "",
       head_pipeline_status: "",
+      pipelines_failed: "",
+      pipelines_pending: "",
       unresolved_threads: "",
       latest_non_system_note_id: "",
       latest_non_system_note_created_at: "",
+      latest_non_system_note_updated_at: "",
+      latest_non_system_note_revision_key: "",
+      review_notes_fingerprint: "",
       head_sha: "",
     }).sort(),
   );
 }
 
-function classifyBundle(bundle) {
+function fingerprintField(fingerprint, fieldName) {
+  if (!fingerprint) {
+    return "";
+  }
+  try {
+    const payload = JSON.parse(fingerprint);
+    return String(payload[fieldName] || "");
+  } catch (_error) {
+    return "";
+  }
+}
+
+function reviewRevisionChanged(entry, bundle) {
+  const meta = bundle.meta || {};
+  const revisionsTotal = Number(meta.review_note_revisions_total || meta.non_system_notes_total || 0);
+  const currentFingerprint = String(meta.review_notes_fingerprint || "");
+  if (revisionsTotal <= 0 || !currentFingerprint) {
+    return false;
+  }
+  const previousFingerprint = fingerprintField(entry.lastFingerprint, "review_notes_fingerprint");
+  return currentFingerprint !== previousFingerprint;
+}
+
+function classifyBundle(bundle, context = {}) {
   const status = String(bundle.status || "");
   const guidance = bundle.workflow_guidance || {};
   const recommendedNextAction = String(guidance.recommended_next_action || "");
   const userFacingState = String(guidance.user_facing_state || "");
-  const readyToSubmit = guidance.review_complete === true || status === "approved";
+  const hasReviewRevisionChange = context.reviewRevisionChanged === true;
+  const readyToSubmit =
+    !hasReviewRevisionChange && (guidance.review_complete === true || status === "approved");
   const pendingFinding =
-    status === "pending" &&
-    (recommendedNextAction === "keep_waiting_in_current_session_and_treat_note_as_pending_finding" ||
-      userFacingState === "ci_running_with_pending_finding");
+    hasReviewRevisionChange ||
+    (status === "pending" &&
+      (recommendedNextAction === "keep_waiting_in_current_session_and_treat_note_as_pending_finding" ||
+        userFacingState === "ci_running_with_pending_finding"));
   const needsAttention =
     status === "changes_requested" ||
     status === "needs_rebase" ||
@@ -1248,6 +1284,7 @@ function classifyBundle(bundle) {
   return {
     readyToSubmit,
     pendingFinding,
+    reviewRevisionChanged: hasReviewRevisionChange,
     needsAttention,
     recommendedNextAction,
     userFacingState,
@@ -1266,6 +1303,7 @@ function summaryItem(entry, bundle, classification) {
     raw_status: String(bundle.raw_status || ""),
     ready_to_submit: classification.readyToSubmit,
     needs_attention: classification.needsAttention,
+    review_revision_changed: classification.reviewRevisionChanged,
   };
 }
 
@@ -1277,6 +1315,8 @@ function buildNotificationMessage(entry, bundle, classification) {
     conclusion = "当前 MR 已达到可提交状态，请回到原会话确认后由人工提交。";
   } else if (String(bundle.status || "") === "needs_rebase") {
     conclusion = "当前 MR 需要先 rebase 目标分支，再继续后续 push-code 流程。";
+  } else if (classification.reviewRevisionChanged) {
+    conclusion = "检测到 reviewer note 内容新增或被编辑，请重新阅读对应 revision 后再判断是否可提交。";
   } else if (classification.pendingFinding) {
     conclusion = "当前 MR 仍在等待检查，但已经出现待处理 reviewer finding，请继续跟进。";
   }
@@ -1290,6 +1330,8 @@ function buildNotificationMessage(entry, bundle, classification) {
     `- status: ${String(bundle.status || "unknown")}`,
     `- raw_status: ${String(bundle.raw_status || "unknown")}`,
     `- head_pipeline_status: ${String(meta.head_pipeline_status || "unknown")}`,
+    `- pipelines_failed: ${meta.pipelines_failed ?? "unknown"}`,
+    `- pipelines_pending: ${meta.pipelines_pending ?? "unknown"}`,
     `- unresolved_threads: ${meta.unresolved_threads ?? "unknown"}`,
   ];
 
@@ -1297,6 +1339,9 @@ function buildNotificationMessage(entry, bundle, classification) {
     lines.push(
       `- 最新非 system note: #${note.id || meta.latest_non_system_note_id || "unknown"} by ${note.author || meta.latest_non_system_note_author || "unknown"}`,
     );
+    if (note.updated_at || meta.latest_non_system_note_updated_at) {
+      lines.push(`- note_updated_at: ${note.updated_at || meta.latest_non_system_note_updated_at}`);
+    }
   }
   if (classification.recommendedNextAction) {
     lines.push(`- recommended_next_action: ${classification.recommendedNextAction}`);
@@ -1648,7 +1693,9 @@ async function runScan(options) {
     const meta = bundle.meta || {};
     const mr = bundle.merge_request || {};
     const fingerprint = buildFingerprint(bundle);
-    const classification = classifyBundle(bundle);
+    const classification = classifyBundle(bundle, {
+      reviewRevisionChanged: reviewRevisionChanged(entry, bundle),
+    });
     const item = summaryItem(entry, bundle, classification);
 
     if (classification.readyToSubmit) {

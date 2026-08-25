@@ -28,7 +28,7 @@ Codex 宿主优先使用原生 reviewer subagent。兼容 launcher 仅用于回�
 4. 有 blocker 时，连续合格计数清零；主 agent 逐项修复或提出异议，同一 reviewer 复查直到 pass。
 5. 内层 pass 只完成本轮，不计为 qualifying。
 6. 启动下一只全新 reviewer。
-7. 一次 qualifying blind audit 后稳定收敛；普通模式也可在达到最大轮次时停止，goal 模式最多 20 轮。
+7. 一次 qualifying blind audit 后稳定收敛；普通模式默认最多 10 轮，goal 模式最多 20 轮。
 
 ## Finding 分类
 
