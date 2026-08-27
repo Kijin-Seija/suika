@@ -25,14 +25,29 @@ if (process.env.PUSH_CODE_SQLITE_WARNING_SUPPRESSED !== "1") {
 
 const { DatabaseSync } = require("node:sqlite");
 
+const SCRIPT_PATH = fs.realpathSync(process.argv[1]);
+const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
+const SKILL_DIR = path.dirname(SCRIPT_DIR);
+
+function monitorHomeDir() {
+  if (process.env.PUSH_CODE_MR_MONITOR_HOME) {
+    return path.resolve(process.env.PUSH_CODE_MR_MONITOR_HOME);
+  }
+  if (path.basename(SKILL_DIR) === "push-code-monitor") {
+    return path.dirname(SKILL_DIR);
+  }
+  const pathParts = SCRIPT_PATH.split(path.sep);
+  if (pathParts.includes(".claude")) {
+    return path.resolve(process.env.CLAUDE_HOME || path.join(os.homedir(), ".claude"));
+  }
+  return path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
+}
+
 function codexHomeDir() {
   return path.resolve(process.env.CODEX_HOME || path.join(os.homedir(), ".codex"));
 }
 
-const SCRIPT_PATH = fs.realpathSync(process.argv[1]);
-const SCRIPT_DIR = path.dirname(SCRIPT_PATH);
-const SKILL_DIR = path.dirname(SCRIPT_DIR);
-const GLOBAL_MONITOR_DIR = path.join(codexHomeDir(), "push-code-monitor");
+const GLOBAL_MONITOR_DIR = path.join(monitorHomeDir(), "push-code-monitor");
 const DEFAULT_CONFIG_PATH = path.join(GLOBAL_MONITOR_DIR, "config.json");
 const DEFAULT_DB_PATH = path.join(GLOBAL_MONITOR_DIR, "monitor.db");
 const DEFAULT_LEGACY_STATE_PATH = path.join(GLOBAL_MONITOR_DIR, "state.json");
@@ -151,6 +166,7 @@ function defaultMonitorConfig() {
     enabled: false,
     intervalSeconds: 300,
     codexBin: "",
+    claudeBin: "",
     dashboardHost: "127.0.0.1",
     dashboardPort: 4635,
   };
@@ -208,6 +224,7 @@ function initDatabase(database) {
     CREATE TABLE IF NOT EXISTS mr_threads (
       mr_id TEXT PRIMARY KEY,
       thread_id TEXT NOT NULL DEFAULT '',
+      agent_host TEXT NOT NULL DEFAULT 'codex',
       branch TEXT NOT NULL DEFAULT '',
       target_branch TEXT NOT NULL DEFAULT '',
       mr_url TEXT NOT NULL DEFAULT '',
@@ -231,6 +248,7 @@ function initDatabase(database) {
   `);
   ensureDatabaseColumn(database, "mr_threads", "project_root", "TEXT NOT NULL DEFAULT ''");
   ensureDatabaseColumn(database, "mr_threads", "launcher_path", "TEXT NOT NULL DEFAULT ''");
+  ensureDatabaseColumn(database, "mr_threads", "agent_host", "TEXT NOT NULL DEFAULT 'codex'");
   database.exec(`
     CREATE TABLE IF NOT EXISTS scan_runs (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -279,6 +297,7 @@ function normalizeLegacyEntries(legacyState) {
   return entries.map((entry) => ({
     mrId: String(entry.mrId || ""),
     threadId: String(entry.threadId || ""),
+    agentHost: String(entry.agentHost || "codex"),
     branch: String(entry.branch || ""),
     targetBranch: String(entry.targetBranch || ""),
     mrUrl: String(entry.mrUrl || ""),
@@ -306,6 +325,7 @@ function upsertEntry(database, entry) {
     INSERT INTO mr_threads (
       mr_id,
       thread_id,
+      agent_host,
       branch,
       target_branch,
       mr_url,
@@ -328,6 +348,7 @@ function upsertEntry(database, entry) {
     ) VALUES (
       @mrId,
       @threadId,
+      @agentHost,
       @branch,
       @targetBranch,
       @mrUrl,
@@ -350,6 +371,7 @@ function upsertEntry(database, entry) {
     )
     ON CONFLICT(mr_id) DO UPDATE SET
       thread_id = excluded.thread_id,
+      agent_host = excluded.agent_host,
       branch = excluded.branch,
       target_branch = excluded.target_branch,
       mr_url = excluded.mr_url,
@@ -478,6 +500,7 @@ function rowsToEntries(rows) {
   return rows.map((row) => ({
     mrId: String(row.mr_id || ""),
     threadId: String(row.thread_id || ""),
+    agentHost: String(row.agent_host || "codex"),
     branch: String(row.branch || ""),
     targetBranch: String(row.target_branch || ""),
     mrUrl: String(row.mr_url || ""),
@@ -663,11 +686,24 @@ function codexBin(config) {
   return "codex";
 }
 
-function notifyThread(threadId, message, config, model = "") {
-  const state = threadRunningState(threadId);
+function claudeBin(config) {
+  if (process.env.PUSH_CODE_MR_MONITOR_CLAUDE_BIN) {
+    return process.env.PUSH_CODE_MR_MONITOR_CLAUDE_BIN;
+  }
+  if (config.claudeBin) {
+    return config.claudeBin;
+  }
+  return "claude";
+}
+
+function notifyThread(threadId, message, config, model = "", agentHost = "codex", projectRoot = "") {
+  const normalizedHost = agentHost === "claude" ? "claude" : "codex";
+  const isClaude = normalizedHost === "claude";
+  const state = normalizedHost === "codex" ? threadRunningState(threadId) : { running: false };
   if (state.running) {
     return {
       thread_id: threadId,
+      agent_host: normalizedHost,
       notified: false,
       deferred: true,
       reason: "thread_running",
@@ -675,31 +711,37 @@ function notifyThread(threadId, message, config, model = "") {
     };
   }
 
-  const codexCommand = codexBin(config);
+  const agentCommand = isClaude ? claudeBin(config) : codexBin(config);
   const logDir = path.join(GLOBAL_MONITOR_DIR, "logs");
   fs.mkdirSync(logDir, { recursive: true });
   const timestamp = nowMs();
   const logPath = path.join(logDir, `notify-${threadId}-${timestamp}.log`);
   const output = fs.openSync(logPath, "a");
-  const command = ["exec", "resume", "--skip-git-repo-check", threadId, "-"];
-  if (model) {
-    command.push("--model", model);
-  }
+  const command = isClaude
+    ? ["--resume", threadId, "--print", message]
+    : ["exec", "resume", "--skip-git-repo-check", threadId, "-"];
+  if (model) command.push("--model", model);
 
-  const child = spawn(codexCommand, command, {
+  const child = spawn(agentCommand, command, {
     detached: true,
-    stdio: ["pipe", output, output],
+    stdio: [isClaude ? "ignore" : "pipe", output, output],
+    cwd: projectRoot || undefined,
   });
-  child.stdin.end(message, "utf8");
+  if (!isClaude) {
+    child.stdin.end(message, "utf8");
+    if (typeof child.stdin.unref === "function") child.stdin.unref();
+  }
+  fs.closeSync(output);
   child.unref();
 
   return {
     thread_id: threadId,
+    agent_host: normalizedHost,
     notified: true,
     deferred: false,
     spawned_pid: child.pid,
     log_path: logPath,
-    command: [codexCommand, ...command],
+    command: [agentCommand, ...command],
   };
 }
 
@@ -748,6 +790,7 @@ function activeMappingItem(entry) {
   return {
     mr_id: entry.mrId,
     thread_id: entry.threadId,
+    agent_host: entry.agentHost,
     project_id: entry.projectId,
     branch: entry.branch,
     target_branch: entry.targetBranch,
@@ -787,6 +830,7 @@ function dashboardData(options = {}) {
       enabled: config.enabled,
       interval_seconds: config.intervalSeconds,
       codex_bin: config.codexBin,
+      claude_bin: config.claudeBin,
       dashboard_host: config.dashboardHost,
       dashboard_port: config.dashboardPort,
     },
@@ -1407,6 +1451,7 @@ function commandRegistrationUpsert(options) {
     projectId: String(options["project-id"] || ""),
     projectRoot: requireOption(options, "project-root"),
     launcherPath: requireOption(options, "launcher-path"),
+    agentHost: String(options["agent-host"] || "codex") === "claude" ? "claude" : "codex",
     active: true,
     lastStatus: "",
     lastRawStatus: "",
@@ -1429,6 +1474,7 @@ function commandRegistrationUpsert(options) {
     db_path: dbPath,
     mr_id: mrId,
     thread_id: entry.threadId,
+    agent_host: entry.agentHost,
   });
   return 0;
 }
@@ -1452,6 +1498,8 @@ function commandNotifyThread(options) {
       message,
       config,
       String(options.model || ""),
+      String(options["agent-host"] || "codex"),
+      String(options["project-root"] || ""),
     ),
   );
   return 0;
@@ -1462,6 +1510,9 @@ function commandConfigSet(options) {
   const config = loadMonitorConfig(configPath);
   if (options["codex-bin"] !== undefined) {
     config.codexBin = String(options["codex-bin"] || "");
+  }
+  if (options["claude-bin"] !== undefined) {
+    config.claudeBin = String(options["claude-bin"] || "");
   }
   if (options["interval-seconds"] !== undefined) {
     config.intervalSeconds = parsePositiveInteger(
@@ -1485,6 +1536,7 @@ function commandConfigSet(options) {
     enabled: config.enabled,
     interval_seconds: config.intervalSeconds,
     codex_bin: config.codexBin,
+    claude_bin: config.claudeBin,
     dashboard_host: config.dashboardHost,
     dashboard_port: config.dashboardPort,
   });
@@ -1745,6 +1797,8 @@ async function runScan(options) {
       buildNotificationMessage(entry, bundle, classification),
       config,
       String(options.model || ""),
+      entry.agentHost,
+      entry.projectRoot,
     );
     if (notification.notified) {
       database.prepare(`

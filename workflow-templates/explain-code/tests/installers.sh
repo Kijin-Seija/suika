@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="$(mktemp -d)"
 trap 'rm -rf "${TMP_ROOT}"' EXIT
 
@@ -84,7 +85,25 @@ run_root_installer_test() {
   assert_not_exists "${target}/.codex/skills/explain-code"
 }
 
+run_claude_install_and_remove_test() {
+  local target="${TMP_ROOT}/claude-target"
+  mkdir -p "${target}"
+
+  bash "${CODEX_INSTALLER}" "${target}"
+  bash "${CLAUDE_INSTALLER}" "${target}"
+  assert_file "${target}/.claude/skills/explain-code/SKILL.md"
+  assert_contains "${target}/.claude/skills/explain-code/SKILL.md" '/explain-code deep'
+  assert_not_exists "${target}/CLAUDE.md"
+  diff -u \
+    <(grep -F '$explain-code' "${target}/.codex/skills/explain-code/SKILL.md" | sed 's/\$explain-code/\/explain-code/g') \
+    <(grep -F '/explain-code' "${target}/.claude/skills/explain-code/SKILL.md")
+
+  bash "${ROOT_INSTALLER}" --claude --remove "${target}"
+  assert_not_exists "${target}/.claude/skills/explain-code"
+}
+
 run_install_and_remove_test
 run_root_installer_test
+run_claude_install_and_remove_test
 
-echo "PASS: explain-code install, idempotence, and removal"
+echo "PASS: explain-code Codex and Claude Code install, idempotence, and removal"

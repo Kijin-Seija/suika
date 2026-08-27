@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
 FAKE_CODEX="${TMP_DIR}/fake-codex.sh"
@@ -287,6 +288,40 @@ run_root_install_tests() {
   mkdir -p "${target}"
   bash "${ROOT_INSTALLER}" --codex "${target}"
   assert_file "${target}/.codex/skills/reviewer/SKILL.md"
+
+  target="${TMP_DIR}/root-claude-target"
+  mkdir -p "${target}"
+  bash "${ROOT_INSTALLER}" --claude "${target}"
+  assert_file "${target}/.claude/skills/reviewer/SKILL.md"
+  assert_file "${target}/.claude/skills/reviewer/prompts/claude-review-response.md"
+  assert_executable "${target}/.claude/skills/reviewer/bin/reviewer-run.sh"
+  cmp \
+    "${TMP_DIR}/codex-target/.codex/skills/reviewer/bin/reviewer-run.sh" \
+    "${target}/.claude/skills/reviewer/bin/reviewer-run.sh"
+  assert_not_exists "${target}/CLAUDE.md"
+}
+
+run_claude_launcher_test() {
+  local target="${TMP_DIR}/claude-launcher-target"
+  local plans_dir=".claude/plans/claude-launcher-test"
+  local prompt_log="${TMP_DIR}/claude-launcher-prompt.log"
+  local baseline
+
+  init_git_target "${target}"
+  bash "${CLAUDE_INSTALLER}" "${target}"
+  (
+    cd "${target}"
+    baseline="$(git rev-parse HEAD)"
+    mkdir -p "${plans_dir}"
+    printf '# artifact\n' > "${plans_dir}/artifact-r1.md"
+    REVIEWER_CODEX_BIN="${FAKE_CODEX}" FAKE_CODEX_PROMPT_LOG="${prompt_log}" FAKE_CODEX_STATUS=pass \
+      .claude/skills/reviewer/bin/reviewer-run.sh blind \
+        --task "Claude reviewer 测试" --artifact-type code --topic claude-launcher-test \
+        --audit-round 1 --baseline "${baseline}" \
+        --artifact "${plans_dir}/artifact-r1.md"
+    assert_file "${plans_dir}/final.md"
+    assert_contains "${prompt_log}" '不要读取 `.codex/plans/`、`.claude/plans/`'
+  )
 }
 
 run_default_budget_test() {
@@ -583,6 +618,7 @@ run_session_rollover_test() {
 write_fake_codex
 run_codex_install_test
 run_root_install_tests
+run_claude_launcher_test
 run_default_budget_test
 run_convergence_flow_test
 run_invalid_classification_test
@@ -590,4 +626,4 @@ run_state_migration_test
 run_consensus_flow_test
 run_session_rollover_test
 
-echo "PASS: reviewer installers, convergence, backlog, consensus, and rollover"
+echo "PASS: reviewer Codex/Claude installers, convergence, backlog, consensus, and rollover"

@@ -28,7 +28,7 @@ DEFAULT_PORT = 47821
 def detect_context() -> tuple[str, str, Path]:
     script_path = Path(__file__).resolve()
     for parent in script_path.parents:
-        if parent.name == ".codex":
+        if parent.name in {".codex", ".claude"}:
             return parent.name[1:], str(parent.parent), script_path
     return "debug", str(Path.cwd()), script_path
 

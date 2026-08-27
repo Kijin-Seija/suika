@@ -986,7 +986,7 @@ append_untracked_to_index() {
 
   while IFS= read -r path; do
     case "${path}" in
-      .codex/plans/*)
+      .codex/plans/*|.claude/plans/*)
         continue
         ;;
     esac

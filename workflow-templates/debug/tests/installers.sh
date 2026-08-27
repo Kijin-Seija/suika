@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
 rm -rf "${TMP_DIR}"
@@ -125,4 +126,33 @@ run_start_failure_smoke_test "${TMP_DIR}/codex-target/.codex/skills/debug-steps/
 assert_install "${ROOT_INSTALLER}" "${TMP_DIR}/root-default-target"
 assert_install "${ROOT_INSTALLER}" "${TMP_DIR}/root-codex-target" --codex
 
-echo "PASS: debug Codex installers"
+assert_claude_install() {
+  local installer="$1"
+  local target="$2"
+  shift 2
+  mkdir -p "${target}"
+  bash "${installer}" "$@" "${target}"
+
+  assert_file "${target}/.claude/skills/debug-auto/SKILL.md"
+  assert_file "${target}/.claude/skills/debug-steps/SKILL.md"
+  assert_file "${target}/.claude/skills/debug-manual/SKILL.md"
+  assert_file "${target}/.claude/skills/debug-steps/reference.md"
+  assert_executable "${target}/.claude/skills/debug-steps/bin/debug-session.sh"
+  assert_executable "${target}/.claude/skills/debug-steps/bin/debug_log_server.py"
+  [[ ! -e "${target}/CLAUDE.md" ]] || fail "Claude project skill install should not create CLAUDE.md"
+  assert_contains "${target}/.claude/skills/debug-steps/SKILL.md" '.claude/skills/debug-steps/bin/debug-session.sh start'
+}
+
+assert_file "${CLAUDE_INSTALLER}"
+assert_claude_install "${CLAUDE_INSTALLER}" "${TMP_DIR}/claude-target"
+run_runtime_smoke_test "${TMP_DIR}/claude-target/.claude/skills/debug-steps/bin/debug-session.sh"
+assert_claude_install "${ROOT_INSTALLER}" "${TMP_DIR}/root-claude-target" --claude
+
+diff -u \
+  <(grep -F 'debug-session.sh' "${TMP_DIR}/codex-target/.codex/skills/debug-steps/SKILL.md" | sed 's#\.codex/#.host/#g') \
+  <(grep -F 'debug-session.sh' "${TMP_DIR}/claude-target/.claude/skills/debug-steps/SKILL.md" | sed 's#\.claude/#.host/#g')
+diff -u \
+  <(grep -F 'debug-session.sh' "${TMP_DIR}/codex-target/.codex/skills/debug-steps/reference.md" | sed 's#\.codex/#.host/#g') \
+  <(grep -F 'debug-session.sh' "${TMP_DIR}/claude-target/.claude/skills/debug-steps/reference.md" | sed 's#\.claude/#.host/#g')
+
+echo "PASS: debug Codex and Claude Code installers"

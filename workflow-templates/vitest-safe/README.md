@@ -1,8 +1,8 @@
 # Vitest Safe
 
-这是一个可复用的全局 Codex skill 模板，用原子文件锁把测试命令放进共享队列，限制同时运行的完整测试进程数量，重点保护 Vitest，降低 Codex 和多个 Electron/Node 工作流并发时的内存峰值。
+这是一个兼容 Codex 与 Claude Code 的全局 skill 模板，用原子文件锁把测试命令放进同一个共享队列，限制同时运行的完整测试进程数量。
 
-它和项目级 skill 模板一样，包含根入口、Codex 安装器、skill、可执行 helper 和安装器测试；区别是安装目标是 Codex 全局目录，不需要传入项目路径。
+它包含根入口、Codex/Claude Code 安装器、skill、可执行 helper 和安装器测试；区别是安装目标是宿主全局目录，不需要传入项目路径。
 
 ## 安装
 
@@ -25,9 +25,19 @@ bash workflow-templates/vitest-safe/init.sh --max-concurrent 4
 - 写入 `$CODEX_HOME/vitest-safe/config.json`
 - 在 `$CODEX_HOME/AGENTS.md` 中维护强制通过 wrapper 执行 Vitest 的规则
 
-如果希望直接输入 `vitest-safe`，把 `$CODEX_HOME/bin` 加入 shell 的 `PATH`；Codex 也可以按全局 `AGENTS.md` 使用绝对路径。
+Claude Code 版使用 `${CLAUDE_HOME:-$HOME/.claude}`：
+
+```bash
+bash workflow-templates/vitest-safe/init.sh --claude --max-concurrent 2
+```
+
+它安装到 `$CLAUDE_HOME/skills` 和 `$CLAUDE_HOME/bin`，并维护 `$CLAUDE_HOME/CLAUDE.md`。两种宿主的描述配置分别保存在各自 home 下，但实际运行配置与锁池共享 `${VITEST_SAFE_STATE_DIR:-${XDG_STATE_HOME:-$HOME/.local/state}/suika-vitest-safe}`。
+
+如果希望直接输入 `vitest-safe`，把对应宿主的 `$CODEX_HOME/bin` 或 `$CLAUDE_HOME/bin` 加入 shell 的 `PATH`；也可以按全局指令文件使用绝对路径。
 
 ## 使用
+
+在 Claude Code 中可通过 `/vitest-safe` 显式调用；实际测试命令仍统一使用 `vitest-safe -- <原命令>`。
 
 所有测试命令（尤其是确认会启动 Vitest 的命令）都必须写成：
 
@@ -41,6 +51,7 @@ vitest-safe -- npm run test -- --run
 
 ```bash
 "${CODEX_HOME:-$HOME/.codex}/bin/vitest-safe" -- pnpm exec vitest run
+"${CLAUDE_HOME:-$HOME/.claude}/bin/vitest-safe" -- pnpm exec vitest run
 ```
 
 超过并发上限的调用会等待 slot；wrapper 使用 `fcntl.flock`，锁由内核管理，测试进程退出或崩溃时会自动释放。
@@ -55,9 +66,10 @@ vitest-safe -- pnpm exec vitest run --maxWorkers=2 --no-file-parallelism
 
 ```bash
 bash workflow-templates/vitest-safe/init.sh --remove
+bash workflow-templates/vitest-safe/init.sh --claude --remove
 ```
 
-卸载只删除本安装器创建的 skill/wrapper symlink、配置文件和规则区块；如果已有其他程序正在使用锁文件，锁目录会保留，避免打断运行中的测试。
+卸载只删除对应宿主的 skill、wrapper、描述配置和规则区块；共享运行配置与锁目录会保留，避免打断另一个宿主或正在运行的测试。
 
 ## 自检
 

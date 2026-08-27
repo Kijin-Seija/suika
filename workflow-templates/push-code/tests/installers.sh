@@ -5,13 +5,15 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
 rm -rf "${TMP_DIR}"
 mkdir -p "${TMP_DIR}"
 trap 'rm -rf "${TMP_ROOT}"' EXIT
 export CODEX_HOME="${TMP_DIR}/codex-home"
-mkdir -p "${CODEX_HOME}"
+export CLAUDE_HOME="${TMP_DIR}/claude-home"
+mkdir -p "${CODEX_HOME}" "${CLAUDE_HOME}"
 
 global_monitor_root() {
   printf '%s/push-code-monitor' "${CODEX_HOME}"
@@ -31,6 +33,22 @@ global_monitor_service_path() {
 
 global_monitor_script_path() {
   printf '%s/bin/push-code-monitor.cjs' "$(global_monitor_root)"
+}
+
+claude_global_monitor_root() {
+  printf '%s/push-code-monitor' "${CLAUDE_HOME}"
+}
+
+claude_global_monitor_config_path() {
+  printf '%s/config.json' "$(claude_global_monitor_root)"
+}
+
+claude_global_monitor_db_path() {
+  printf '%s/monitor.db' "$(claude_global_monitor_root)"
+}
+
+claude_global_monitor_script_path() {
+  printf '%s/bin/push-code-monitor.cjs' "$(claude_global_monitor_root)"
 }
 
 fail() {
@@ -761,6 +779,13 @@ JSON
 EOF
   chmod +x "${target}/.codex/skills/push-code/bin/push-code-run.sh"
 
+  python3 - "$(global_monitor_db_path)" <<'PY'
+import sqlite3, sys
+database = sqlite3.connect(sys.argv[1])
+database.execute("update mr_threads set active = 0")
+database.commit()
+PY
+
   node "$(global_monitor_script_path)" registration-upsert \
     --db-path "$(global_monitor_db_path)" \
     --mr-id "88" \
@@ -959,6 +984,102 @@ EOF
   [[ -f "${stdin_file}" ]] || fail "fake codex stdin file not created"
   assert_contains "${args_file}" 'exec resume --skip-git-repo-check thread-notify-demo -'
   assert_contains "${stdin_file}" 'hello from monitor'
+}
+
+run_claude_install_and_notify_test() {
+  local target="${TMP_DIR}/claude-target"
+  local fake_claude="${TMP_DIR}/fake-claude-notify.sh"
+  local args_file="${TMP_DIR}/claude-notify-args.txt"
+  local prompt_file="${TMP_DIR}/claude-notify-prompt.txt"
+  local output=""
+
+  mkdir -p "${target}"
+  git -C "${target}" init >/dev/null 2>&1
+  git -C "${target}" config user.name tester
+  git -C "${target}" config user.email tester@example.com
+  printf 'seed\n' > "${target}/README.md"
+  git -C "${target}" add README.md
+  git -C "${target}" commit -m seed >/dev/null 2>&1
+  git -C "${target}" checkout -b feature/claude >/dev/null 2>&1
+  cat > "${fake_claude}" <<EOF
+#!/usr/bin/env bash
+printf '%s\n' "\$*" > "${args_file}"
+EOF
+  chmod +x "${fake_claude}"
+
+  bash "${ROOT_INSTALLER}" --claude \
+    --no-prompt \
+    --no-connectivity-check \
+    --project-id team/claude \
+    --gitlab-base-url https://gitlab.example.com \
+    --gitlab-api-token claude-token \
+    --enable-mr-monitor \
+    --claude-bin "${fake_claude}" \
+    "${target}" >/dev/null
+
+  assert_file "${target}/.claude/skills/push-code/SKILL.md"
+  assert_file "${target}/.claude/skills/push-code/reference.md"
+  assert_file "${target}/.claude/skills/push-code/bin/push-code-run.sh"
+  assert_file "$(claude_global_monitor_script_path)"
+  cmp \
+    "${TMP_DIR}/codex-target/.codex/skills/push-code/bin/push-code-run.sh" \
+    "${target}/.claude/skills/push-code/bin/push-code-run.sh"
+  diff -u \
+    <(grep -F 'push-code-run.sh' "${TMP_DIR}/codex-target/.codex/skills/push-code/SKILL.md" | sed 's#\.codex/#.host/#g') \
+    <(grep -F 'push-code-run.sh' "${target}/.claude/skills/push-code/SKILL.md" | sed 's#\.claude/#.host/#g')
+  assert_contains "${target}/.claude/skills/push-code/config.env" 'PUSH_CODE_MR_TITLE_PREFIX=\[Claude\]'
+  assert_contains "${target}/.claude/skills/push-code/reference.md" 'CLAUDE_CODE_SESSION_ID'
+  assert_no_file "${target}/CLAUDE.md"
+
+  cat > "${prompt_file}" <<'EOF'
+hello Claude from monitor
+EOF
+  output="$(
+    node "$(claude_global_monitor_script_path)" notify-thread \
+      --config-path "$(claude_global_monitor_config_path)" \
+      --thread-id 11111111-1111-4111-8111-111111111111 \
+      --agent-host claude \
+      --project-root "${target}" \
+      --message-file "${prompt_file}"
+  )"
+  assert_output_contains "${output}" '"agent_host": "claude"'
+  for _ in $(seq 1 50); do
+    [[ -f "${args_file}" ]] && break
+    sleep 0.1
+  done
+  assert_contains "${args_file}" '--resume 11111111-1111-4111-8111-111111111111 --print'
+  assert_contains "${args_file}" 'hello Claude from monitor'
+
+  cat > "${target}/.claude/skills/push-code/bin/push_code_webhook.py" <<'PY'
+#!/usr/bin/env python3
+import json
+print(json.dumps({"mr_id": 322, "mr_url": "https://gitlab.example.com/team/claude/-/merge_requests/322"}))
+PY
+  chmod +x "${target}/.claude/skills/push-code/bin/push_code_webhook.py"
+  output="$(cd "${target}" && CLAUDE_CODE_SESSION_ID=22222222-2222-4222-8222-222222222222 ./.claude/skills/push-code/bin/push-code-run.sh create-mr)"
+  assert_output_contains "${output}" '"mr_id": 322'
+  output="$(python3 - "$(claude_global_monitor_db_path)" <<'PY'
+import sqlite3, sys
+row = sqlite3.connect(sys.argv[1]).execute("select thread_id,agent_host from mr_threads where mr_id='322'").fetchone()
+print("|".join(row))
+PY
+)"
+  [[ "${output}" == "22222222-2222-4222-8222-222222222222|claude" ]] || fail "Claude launcher did not persist its session host"
+
+  node "$(claude_global_monitor_script_path)" registration-upsert \
+    --db-path "$(claude_global_monitor_db_path)" \
+    --mr-id 321 \
+    --thread-id 11111111-1111-4111-8111-111111111111 \
+    --agent-host claude \
+    --branch feature/claude \
+    --project-root "${target}" \
+    --launcher-path "${target}/.claude/skills/push-code/bin/push-code-run.sh" >/dev/null
+  output="$(python3 - "$(claude_global_monitor_db_path)" <<'PY'
+import sqlite3, sys
+print(sqlite3.connect(sys.argv[1]).execute("select agent_host from mr_threads where mr_id='321'").fetchone()[0])
+PY
+)"
+  [[ "${output}" == "claude" ]] || fail "Claude registration host was not persisted"
 }
 
 run_monitor_service_commands_test() {
@@ -1378,8 +1499,9 @@ run_monitor_scan_notification_test
 run_monitor_invalid_registration_cleanup_test
 run_monitor_thread_running_test
 run_monitor_notify_thread_test
+run_claude_install_and_notify_test
 run_monitor_service_commands_test
 run_rebase_target_flow_test
 run_helper_status_detection_test
 
-echo "PASS: push-code root and codex installers"
+echo "PASS: push-code Codex/Claude installers and host-aware monitor"

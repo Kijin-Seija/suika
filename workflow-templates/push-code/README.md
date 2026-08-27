@@ -1,10 +1,11 @@
 # Push Code 工作流
 
-这是一个面向 Codex 的可复用模板包，用于初始化“本地 clean working tree -> push 当前分支 -> 直接调用 GitLab REST API 创建 MR -> 轮询 review discussions / 普通 MR notes / mergeability 状态 -> 处理异议或修复代码 -> 直到 MR 达到可提交状态”的 `push-code` skill。
+这是一个兼容 Codex 与 Claude Code 的可复用模板包，用于初始化“本地 clean working tree -> push 当前分支 -> 创建 MR -> 跟进 review 到可提交状态”的 `push-code` skill。
 
 当前模板提供两类能力：
 
 - `codex/`：安装到 `.codex/skills/push-code/`，并通过 `AGENTS.md` 暴露入口
+- `claude/`：安装到 `.claude/skills/push-code/`，依靠 Claude Code 原生 skill 发现
 - 可选的全局 Node.js MR monitor：作为系统级单实例服务，统一检查各项目已登记的 MR 状态，并用固定模板通知指定会话；它不参与业务判断，也不会替当前会话改代码
 
 该模板始终把职责拆开：
@@ -183,6 +184,17 @@ GitLab API helper 默认优先使用 `curl`，这样通常能直接复用系统�
 ./workflow-templates/push-code/codex/init.sh /path/to/target-project
 ```
 
+安装 Claude Code 版时，现有配置和 launcher 参数保持一致：
+
+```bash
+./workflow-templates/push-code/init.sh --claude \
+  --no-prompt \
+  --claude-bin "$(command -v claude)" \
+  /path/to/target-project
+```
+
+Claude 版使用 `${CLAUDE_HOME:-$HOME/.claude}/push-code-monitor/` 保存全局 monitor，并从 `CLAUDE_CODE_SESSION_ID` 获取当前会话。通知命令为 `claude --resume <session-id> --print <message>`；可通过 `PUSH_CODE_MR_MONITOR_CLAUDE_BIN` 覆盖 CLI 路径。
+
 安装结果包括：
 
 - `.codex/skills/push-code/`
@@ -196,9 +208,11 @@ GitLab API helper 默认优先使用 `curl`，这样通常能直接复用系统�
 - `$CODEX_HOME/push-code-monitor/monitor.db`
 - `AGENTS.md` 中的 `push-code` 工作流区块
 
+Claude Code 对应文件位于 `.claude/skills/push-code/`，MR 标题默认前缀为 `[Claude]`。所有 `push-code-run.sh` 子命令与 Codex 版一致。
+
 ## 使用方式
 
-触发 skill 后，优先通过安装后的 launcher 执行机械动作：
+Claude Code 原生调用示例为 `/push-code`。触发 skill 后，优先通过安装后的 launcher 执行机械动作：
 
 ```bash
 .codex/skills/push-code/bin/push-code-run.sh preflight
@@ -211,6 +225,8 @@ GitLab API helper 默认优先使用 `curl`，这样通常能直接复用系统�
 .codex/skills/push-code/bin/push-code-run.sh note --mr-id 123 --body-file reply.md
 .codex/skills/push-code/bin/push-code-run.sh resolve-thread --mr-id 123 --thread-id abc
 ```
+
+Claude Code 使用完全相同的子命令和参数，只把路径前缀替换为 `.claude/skills/push-code/`。
 
 如果你想启动系统级总服务，可以额外运行：
 

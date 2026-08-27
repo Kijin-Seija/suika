@@ -5,6 +5,7 @@ set -euo pipefail
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 ROOT_INSTALLER="${ROOT_DIR}/init.sh"
 CODEX_INSTALLER="${ROOT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${ROOT_DIR}/claude/init.sh"
 TMP_ROOT="${ROOT_DIR}/.tmp-tests"
 TMP_DIR="${TMP_ROOT}/installers"
 rm -rf "${TMP_DIR}"
@@ -71,8 +72,24 @@ run_root_codex_install_test() {
   assert_file "${target}/.codex/skills/karpathy/SKILL.md"
 }
 
+run_claude_install_test() {
+  local target="${TMP_DIR}/claude-target"
+  mkdir -p "${target}"
+
+  bash "${ROOT_INSTALLER}" --claude "${target}"
+  assert_file "${target}/.claude/skills/karpathy/SKILL.md"
+  assert_file "${target}/.claude/skills/karpathy/reference.md"
+  assert_contains "${target}/.claude/skills/karpathy/SKILL.md" "Claude Code"
+  assert_contains "${target}/.claude/skills/karpathy/SKILL.md" ".claude/skills/karpathy/reference.md"
+  [[ ! -e "${target}/CLAUDE.md" ]] || fail "Claude project skill install should not create CLAUDE.md"
+}
+
 run_codex_install_test
 run_root_default_install_test
 run_root_codex_install_test
+run_claude_install_test
+cmp \
+  "${TMP_DIR}/codex-target/.codex/skills/karpathy/reference.md" \
+  "${TMP_DIR}/claude-target/.claude/skills/karpathy/reference.md"
 
-echo "PASS: karpathy root and codex installers"
+echo "PASS: karpathy root, Codex, and Claude Code installers"

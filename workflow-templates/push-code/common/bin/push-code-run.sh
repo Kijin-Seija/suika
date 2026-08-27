@@ -214,7 +214,7 @@ cmd_rebase_target() {
 请先解决 rebase 冲突，然后根据实际情况执行：
 1. git rebase --continue
 2. 运行必要验证
-3. .codex/skills/push-code/bin/push-code-run.sh push --force-with-lease
+3. ${SCRIPT_DIR}/push-code-run.sh push --force-with-lease
 
 如果决定放弃本次 rebase，可执行：
 - git rebase --abort
@@ -248,8 +248,14 @@ monitor_enabled() {
 register_mr_monitor_mapping() {
   local mr_json="$1"
   local branch="$2"
+  local agent_host="codex"
   local thread_id="${CODEX_THREAD_ID:-}"
   local mr_id="" mr_url=""
+
+  if [[ -n "${CLAUDE_CODE_SESSION_ID:-}" ]]; then
+    agent_host="claude"
+    thread_id="${CLAUDE_CODE_SESSION_ID}"
+  fi
 
   monitor_enabled || return 0
   [[ -n "${thread_id}" ]] || return 0
@@ -264,6 +270,7 @@ register_mr_monitor_mapping() {
     --db-path "${PUSH_CODE_MR_MONITOR_DB_PATH}" \
     --mr-id "${mr_id}" \
     --thread-id "${thread_id}" \
+    --agent-host "${agent_host}" \
     --branch "${branch}" \
     --target-branch "${PUSH_CODE_TARGET_BRANCH}" \
     --mr-url "${mr_url}" \

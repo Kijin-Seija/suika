@@ -4,11 +4,12 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_INSTALLER="${SCRIPT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${SCRIPT_DIR}/claude/init.sh"
 
 usage() {
   cat >&2 <<'EOF'
 用法:
-  init.sh [options] <target-project>
+  init.sh [--codex|--claude] [options] <target-project>
 
 选项:
   --prompt
@@ -34,11 +35,22 @@ usage() {
   --approved-states <csv>
   --changes-requested-states <csv>
   --pending-states <csv>
+  --claude-bin <path>
 EOF
 }
 
 main() {
-  exec bash "${CODEX_INSTALLER}" "$@"
+  local installer="${CODEX_INSTALLER}"
+  case "${1-}" in
+    --codex)
+      shift
+      ;;
+    --claude)
+      installer="${CLAUDE_INSTALLER}"
+      shift
+      ;;
+  esac
+  exec bash "${installer}" "$@"
 }
 
 main "$@"

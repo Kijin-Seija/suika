@@ -4,21 +4,28 @@ set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 CODEX_INSTALLER="${SCRIPT_DIR}/codex/init.sh"
+CLAUDE_INSTALLER="${SCRIPT_DIR}/claude/init.sh"
 
 usage() {
   cat >&2 <<'EOF'
 用法:
   init.sh <target-project>                默认安装 Codex 版
   init.sh --codex <target-project>        安装 Codex 版
+  init.sh --claude <target-project>       安装 Claude Code 版
   init.sh --remove <target-project>       卸载 Codex 版
   init.sh --codex --remove <target-project>
+  init.sh --claude --remove <target-project>
 EOF
 }
 
 main() {
+  local installer="${CODEX_INSTALLER}"
   local remove_flag=""
 
   if [[ "${1-}" == "--codex" ]]; then
+    shift
+  elif [[ "${1-}" == "--claude" ]]; then
+    installer="${CLAUDE_INSTALLER}"
     shift
   fi
   if [[ "${1-}" == "--remove" ]]; then
@@ -32,9 +39,9 @@ main() {
   }
 
   if [[ -n "${remove_flag}" ]]; then
-    exec bash "${CODEX_INSTALLER}" "${remove_flag}" "$1"
+    exec bash "${installer}" "${remove_flag}" "$1"
   fi
-  exec bash "${CODEX_INSTALLER}" "$1"
+  exec bash "${installer}" "$1"
 }
 
 main "$@"

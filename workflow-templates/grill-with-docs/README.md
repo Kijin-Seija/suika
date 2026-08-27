@@ -46,6 +46,7 @@ Codex 安装器还会在目标项目的 `AGENTS.md` 中维护一个带标记的�
 使用 grill-with-docs 质询这个方案。
 Grill this design with docs.
 先不要实现，逐项追问并验证这个计划。
+/grill-with-docs 质询这个方案。
 ```
 
 skill 会：
